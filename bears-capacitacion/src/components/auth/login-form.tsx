@@ -45,11 +45,6 @@ export function LoginForm({ isConfigured }: { isConfigured: boolean }) {
         {isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : null}
         {isPending ? "Ingresando" : "Continuar"}
       </button>
-      {!isConfigured ? (
-        <p className="text-sm leading-6 text-muted">
-          Configurá Supabase en <code className="font-tabular text-xs">.env.local</code> para habilitar el acceso.
-        </p>
-      ) : null}
       <Link className="flex h-11 items-center justify-center gap-2 rounded-sm border text-sm font-medium transition-colors hover:bg-surface" href="/admin/dashboard">
         Explorar datos de demostración <ArrowRight className="size-4" aria-hidden="true" />
       </Link>
