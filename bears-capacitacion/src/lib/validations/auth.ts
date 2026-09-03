@@ -21,11 +21,11 @@ export const createUserSchema = z.object({
   phone: z.string().trim().max(30).nullable(),
   mustChangePassword: z.boolean().default(true),
 }).superRefine((value, context) => {
-  if (value.role !== "admin" && !value.franchiseId) {
+  if (value.role === "franquiciado" && !value.franchiseId) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["franchiseId"],
-      message: "La franquicia es obligatoria para empleados y franquiciados.",
+      message: "La franquicia es obligatoria para franquiciados.",
     });
   }
 });

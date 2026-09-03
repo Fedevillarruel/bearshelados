@@ -19,6 +19,8 @@ function refreshFranchisePaths() {
   revalidatePath("/admin/franquicias");
   revalidatePath("/admin/usuarios");
   revalidatePath("/admin/dashboard");
+  revalidatePath("/franquicia/dashboard");
+  revalidatePath("/franquicia/equipo");
 }
 
 export async function saveFranchise(input: unknown) {
@@ -56,13 +58,21 @@ export async function deleteFranchise(franchiseId: string) {
     .eq("role", "franquiciado")
     .limit(1);
   if (managerError) return { error: "No pudimos comprobar los responsables de la franquicia." };
-  if (franchiseManagers?.length) return { error: "Primero reasigná o eliminá la cuenta franquiciada responsable antes de eliminar esta franquicia." };
 
   const { error: mappingsError } = await admin
     .from("tiendanube_sku_branch_mappings")
     .delete()
     .eq("franchise_id", parsed.data);
   if (mappingsError && mappingsError.code !== "42P01") return { error: "No pudimos eliminar las asignaciones comerciales de la franquicia." };
+
+  if (franchiseManagers?.length) {
+    const { error: managerUpdateError } = await admin
+      .from("profiles")
+      .update({ role: "empleado", franchise_id: null })
+      .eq("franchise_id", parsed.data)
+      .eq("role", "franquiciado");
+    if (managerUpdateError) return { error: "No pudimos conservar la cuenta responsable al eliminar la franquicia." };
+  }
 
   const { error } = await admin.from("franchises").delete().eq("id", parsed.data);
   if (error) return { error: "No pudimos eliminar la franquicia." };

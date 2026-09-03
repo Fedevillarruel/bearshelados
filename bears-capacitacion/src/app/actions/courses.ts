@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/roles";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { databaseUuid } from "@/lib/validations/ids";
 
@@ -57,7 +58,7 @@ const assetSchema = z.object({
   title: z.string().trim().min(2, "El contenido necesita un título.").max(160),
   description: nullableText,
   url: z.string().trim().max(5_000),
-  storagePath: nullableText,
+  storagePath: z.string().trim().min(1).max(512).nullable(),
   durationSeconds: z.number().int().min(0).max(86_400),
   sizeBytes: z.number().int().nonnegative().max(300 * 1024 * 1024).nullable().optional(),
   orderIndex: z.number().int().min(0).max(10_000),
@@ -137,6 +138,10 @@ function refreshCoursePaths(courseId?: string) {
   revalidatePath("/admin/dashboard");
   revalidatePath("/cursos/mis-cursos");
   if (courseId) revalidatePath(`/admin/cursos/${courseId}`);
+}
+
+function storageObjectSize(size: unknown) {
+  return typeof size === "number" && Number.isSafeInteger(size) && size >= 0 ? size : null;
 }
 
 export async function saveCourse(input: unknown) {
@@ -238,8 +243,18 @@ export async function saveAsset(input: unknown) {
   const supabase = await createClient();
   const parentCourseId = asset.courseId ?? (await supabase.from("modules").select("course_id").eq("id", asset.moduleId!).maybeSingle()).data?.course_id;
   if (!parentCourseId) return { error: "El módulo seleccionado no existe." };
-  if (asset.storagePath && !asset.storagePath.startsWith(`courses/${parentCourseId}/`)) {
-    return { error: "El archivo no pertenece a este curso." };
+  let verifiedSizeBytes = asset.sizeBytes ?? null;
+  if (asset.storagePath) {
+    const storagePrefix = `courses/${parentCourseId}/`;
+    const fileName = asset.storagePath.slice(storagePrefix.length);
+    if (!asset.storagePath.startsWith(storagePrefix) || !fileName || fileName.includes("/")) {
+      return { error: "El archivo no pertenece a este curso." };
+    }
+    const { data: storedObject, error: storageError } = await createAdminClient().storage
+      .from("course-media")
+      .info(asset.storagePath);
+    if (storageError || !storedObject) return { error: "El archivo privado no existe o todavía no terminó de cargarse." };
+    verifiedSizeBytes = storageObjectSize(storedObject.size) ?? storageObjectSize(storedObject.metadata?.size);
   }
   const storedUrl = asset.storagePath ?? asset.url;
   const payload = {
@@ -252,7 +267,7 @@ export async function saveAsset(input: unknown) {
     url: storedUrl,
     storage_path: asset.storagePath,
     duration_seconds: asset.durationSeconds,
-    size_bytes: asset.sizeBytes ?? null,
+    size_bytes: verifiedSizeBytes,
     order_index: asset.orderIndex,
   };
   const request = asset.id

@@ -23,6 +23,19 @@ function isMissingAuthIdentity(error: { status?: number; code?: string; message?
   return message.includes("user not found") || message.includes("user does not exist");
 }
 
+function logAuthDeletionFailure(error: { status?: number; code?: string; message?: string }) {
+  const message = error.message
+    ?.replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, "[correo oculto]")
+    .replace(/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/gi, "[id oculto]")
+    .replace(/\s+/g, " ")
+    .slice(0, 240);
+  console.error("No se pudo eliminar una cuenta de Supabase Auth.", {
+    status: typeof error.status === "number" ? error.status : null,
+    code: typeof error.code === "string" ? error.code.slice(0, 100) : null,
+    message: message || null,
+  });
+}
+
 const managedProfileSchema = z.object({
   id: databaseUuid,
   email: z.string().trim().email("Ingresá un correo válido."),
@@ -34,8 +47,8 @@ const managedProfileSchema = z.object({
   isActive: z.boolean(),
   mustChangePassword: z.boolean(),
 }).superRefine((value, context) => {
-  if (value.role !== "admin" && !value.franchiseId) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ["franchiseId"], message: "La franquicia es obligatoria para empleados y franquiciados." });
+  if (value.role === "franquiciado" && !value.franchiseId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["franchiseId"], message: "La franquicia es obligatoria para franquiciados." });
   }
 });
 
@@ -225,6 +238,7 @@ export async function deleteUser(input: unknown) {
 
   const { error: authError } = await admin.auth.admin.deleteUser(parsed.data.userId, false);
   if (authError && !isMissingAuthIdentity(authError)) {
+    logAuthDeletionFailure(authError);
     return { error: "No pudimos eliminar la cuenta de acceso. El perfil se conservó." };
   }
 

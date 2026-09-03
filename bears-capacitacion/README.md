@@ -17,20 +17,32 @@ Plataforma interna de cursos, manuales y seguimiento operativo para administraci
 
 ### Proyecto Supabase vacío
 
-Ejecutá una sola vez `supabase/setup-completo.sql` en el SQL Editor. El archivo instala el esquema, RLS, buckets privados, automatizaciones, datos iniciales y la base de Tiendanube en una transacción.
+Ejecutá una sola vez `supabase/setup-completo.sql` en el SQL Editor. El archivo instala el esquema, RLS, buckets privados, automatizaciones y la base de Tiendanube en una transacción; no crea usuarios, franquicias, cursos ni métricas de ejemplo.
+
+Después, creá la primera cuenta en **Authentication > Users > Add user** con confirmación automática y promovela desde el SQL Editor:
+
+```sql
+update public.profiles
+set role = 'admin', is_super_admin = true
+where email = 'tu-correo@dominio.com';
+```
+
+Creá las franquicias, personas, cursos y manuales reales desde el panel de administración.
 
 ### Proyecto remoto parcial existente
 
-No ejecutes nuevamente `supabase/setup-completo.sql`. Ejecutá una vez `supabase/seed.sql`, verificá que `profiles` se vea mediante PostgREST y luego aplicá, en orden:
+No ejecutes nuevamente `supabase/setup-completo.sql` ni `supabase/seed.sql`: el seed está vacío de forma intencional. Aplicá las migraciones que falten, en orden:
 
 ```text
 supabase/migrations/009_tiendanube_foundation.sql
 supabase/migrations/010_tiendanube_workers.sql
 supabase/migrations/011_course_asset_files.sql
 supabase/migrations/012_harden_user_access.sql
+supabase/migrations/013_module_primary_video.sql
+supabase/migrations/014_resource_progress.sql
 ```
 
-Si `supabase/seed.sql` informa que `public.profiles` no existe, la instalación anterior se revirtió antes de crear el esquema base. Comprobá que las tablas estén ausentes con:
+Si `public.profiles` no existe, la instalación anterior se revirtió antes de crear el esquema base. Comprobá que las tablas estén ausentes con:
 
 ```sql
 select
@@ -42,9 +54,9 @@ select
 
 Cuando las cuatro columnas devuelvan `null`, el proyecto está vacío a efectos de la aplicación: ejecutá la versión actual de `supabase/setup-completo.sql` una sola vez. El instalador ahora reutiliza de forma segura un administrador existente en Supabase Auth y crea su perfil activo.
 
-Las migraciones `001` a `008` son el historial para instalaciones incrementales anteriores. En un entorno existente que todavía no las tenga, aplicalas primero en orden numérico; `007_admin_user.sql` es sólo la alternativa SQL para crear el administrador inicial.
+Las migraciones son el historial para instalaciones incrementales. En un entorno existente que todavía no las tenga, aplicalas primero en orden numérico. `007_admin_user.sql` quedó deliberadamente vacío para evitar credenciales o cuentas predeterminadas.
 
-Si el proyecto ya estaba instalado antes de esta actualización, aplicá `011_course_asset_files.sql` y luego `012_harden_user_access.sql`. No ejecutes nuevamente `setup-completo.sql` sobre una instalación existente.
+No ejecutes nuevamente `setup-completo.sql` sobre una instalación existente.
 
 ## Variables de entorno
 
@@ -119,4 +131,4 @@ http://localhost:3000/auth/callback
 npm run build
 ```
 
-La ruta `/demo` es la vista no persistente disponible sin Supabase. Los flujos de usuarios, cursos, manuales, reportes y Tiendanube requieren una configuración válida de Supabase.
+La aplicación no muestra información operativa cuando Supabase no está configurado. Los flujos de usuarios, cursos, manuales, reportes y Tiendanube requieren una configuración válida de Supabase.

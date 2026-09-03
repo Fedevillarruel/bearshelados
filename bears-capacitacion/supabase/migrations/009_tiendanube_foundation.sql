@@ -19,16 +19,7 @@ returns boolean language sql stable security definer set search_path = public as
 $$;
 
 -- This is the only automatic promotion. Future promotions require an existing super administrator.
-do $$
-begin
-  if not exists (select 1 from public.profiles where is_super_admin) then
-    update public.profiles
-      set is_super_admin = true
-      where email = 'admin@bears-helados.com'
-        and role = 'admin'
-        and is_active;
-  end if;
-end;
+-- Promote the first real administrator explicitly after creating it in Supabase Auth.
 $$;
 
 create or replace function public.protect_super_admin_flag()

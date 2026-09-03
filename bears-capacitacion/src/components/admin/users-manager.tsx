@@ -21,7 +21,7 @@ const formSchema = z.object({
   phone: z.string().trim(),
   mustChangePassword: z.boolean(),
 }).superRefine((values, context) => {
-  if (values.role !== "admin" && !values.franchiseId) context.addIssue({ code: z.ZodIssueCode.custom, path: ["franchiseId"], message: "Elegí una franquicia para este rol." });
+  if (values.role === "franquiciado" && !values.franchiseId) context.addIssue({ code: z.ZodIssueCode.custom, path: ["franchiseId"], message: "Elegí una franquicia para el franquiciado." });
 });
 
 type FormValues = z.infer<typeof formSchema>;

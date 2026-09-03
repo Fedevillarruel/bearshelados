@@ -207,6 +207,9 @@ export async function getTrainingOverview({ franchiseId }: { franchiseId?: strin
       averageProgress: average(courseEnrollments.map((enrollment) => valueAsNumber(enrollment.progress_percent))),
     };
   });
+  const scopedCourseReports = franchiseId
+    ? courseReports.filter((course) => course.enrollmentCount > 0)
+    : courseReports;
 
   const franchiseSummaries = franchises.map((franchise) => {
     const members = team.filter((member) => member.franchiseId === franchise.id);
@@ -229,13 +232,13 @@ export async function getTrainingOverview({ franchiseId }: { franchiseId?: strin
 
   return {
     activeEmployees: profiles.length,
-    publishedCourses: courses.length,
+    publishedCourses: scopedCourseReports.length,
     completionPercent: totalEnrollments ? (completedEnrollments / totalEnrollments) * 100 : null,
     averageScore: average(allScores),
     watchedMinutes,
     failedAttemptsLast30Days,
     team,
-    courses: courseReports,
+    courses: scopedCourseReports,
     franchises: franchiseSummaries,
   };
 }

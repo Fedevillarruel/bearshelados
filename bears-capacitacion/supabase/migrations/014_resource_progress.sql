@@ -1,4 +1,4 @@
-create table public.resource_progress (
+create table if not exists public.resource_progress (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
   asset_id uuid not null references public.assets(id) on delete cascade,
@@ -6,10 +6,11 @@ create table public.resource_progress (
   updated_at timestamptz not null default now(),
   unique (user_id, asset_id)
 );
-create index resource_progress_user_id_idx on public.resource_progress (user_id);
+create index if not exists resource_progress_user_id_idx on public.resource_progress (user_id);
 
 alter table public.resource_progress enable row level security;
 
+drop policy if exists "read permitted resource progress" on public.resource_progress;
 create policy "read permitted resource progress" on public.resource_progress for select using (
   user_id = auth.uid() or public.is_admin() or (
     public.current_app_role() = 'franquiciado' and exists (
@@ -17,6 +18,7 @@ create policy "read permitted resource progress" on public.resource_progress for
     )
   )
 );
+drop policy if exists "record own enrolled resource progress" on public.resource_progress;
 create policy "record own enrolled resource progress" on public.resource_progress for insert with check (
   user_id = auth.uid() and exists (
     select 1
@@ -31,6 +33,7 @@ create policy "record own enrolled resource progress" on public.resource_progres
       )
   )
 );
+drop policy if exists "update own enrolled resource progress" on public.resource_progress;
 create policy "update own enrolled resource progress" on public.resource_progress for update using (
   user_id = auth.uid()
 ) with check (
@@ -53,6 +56,7 @@ drop policy if exists "employee updates own module progress" on public.module_pr
 drop policy if exists "employee writes own video progress" on public.video_progress;
 drop policy if exists "employee updates own video progress" on public.video_progress;
 
+drop policy if exists "record own enrolled video progress" on public.video_progress;
 create policy "record own enrolled video progress" on public.video_progress for insert with check (
   user_id = auth.uid() and exists (
     select 1
@@ -67,6 +71,7 @@ create policy "record own enrolled video progress" on public.video_progress for 
       )
   )
 );
+drop policy if exists "update own enrolled video progress" on public.video_progress;
 create policy "update own enrolled video progress" on public.video_progress for update using (
   user_id = auth.uid()
 ) with check (
