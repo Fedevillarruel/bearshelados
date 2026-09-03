@@ -39,6 +39,7 @@ type AssetRow = {
   course_id: string | null;
   module_id: string | null;
   type: "video" | "pdf" | "image" | "spreadsheet" | "document" | "text" | "link";
+  is_primary: boolean;
   title: string;
   description: string | null;
   url: string;
@@ -194,12 +195,12 @@ export async function getEmployeeCourseModule(viewer: Viewer, slug: string, modu
   const [{ data: assetData }, { data: courseAssetData }, { data: examData }, { data: courseExamData }] = await Promise.all([
     supabase
       .from("assets")
-      .select("id, course_id, module_id, type, title, description, url, storage_path, duration_seconds, size_bytes, order_index")
+      .select("id, course_id, module_id, type, is_primary, title, description, url, storage_path, duration_seconds, size_bytes, order_index")
       .eq("module_id", currentModule.id)
       .order("order_index"),
     supabase
       .from("assets")
-      .select("id, course_id, module_id, type, title, description, url, storage_path, duration_seconds, size_bytes, order_index")
+      .select("id, course_id, module_id, type, is_primary, title, description, url, storage_path, duration_seconds, size_bytes, order_index")
       .eq("course_id", course.id)
       .order("order_index"),
     supabase

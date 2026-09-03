@@ -18,15 +18,17 @@ import {
   X,
 } from "lucide-react";
 import { createCourseAssetUploadUrl, deleteAsset, saveAsset } from "@/app/actions/courses";
+import { courseAssetFileAccept, detectCourseAssetFile, type CourseAssetType, type PendingCourseAssetFile } from "@/lib/course-asset-files";
 import { createClient } from "@/lib/supabase/client";
 
-type AssetType = "video" | "pdf" | "image" | "spreadsheet" | "document" | "text" | "link";
+type AssetType = CourseAssetType;
 
 export type CourseContentAsset = {
   id: string;
   courseId: string | null;
   moduleId: string | null;
   type: AssetType;
+  isPrimary: boolean;
   title: string;
   description: string | null;
   url: string;
@@ -42,14 +44,6 @@ export type CourseContentModule = {
   orderIndex: number;
   assets: CourseContentAsset[];
 };
-
-type PendingFile = {
-  file: File;
-  type: AssetType;
-  contentType: string;
-};
-
-const fileAccept = ".mp4,.webm,.pdf,.jpg,.jpeg,.png,.webp,.gif,.xlsx,.xls,.csv,.doc,.docx,.ppt,.pptx";
 
 function optional(value: string) {
   const trimmed = value.trim();
@@ -82,27 +76,6 @@ function assetIcon(type: AssetType) {
   if (type === "spreadsheet") return FileSpreadsheet;
   if (type === "link") return Link2;
   return Text;
-}
-
-function detectFile(file: File): PendingFile | null {
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  const type = file.type.toLowerCase();
-
-  if (type === "video/mp4" || extension === "mp4") return { file, type: "video", contentType: "video/mp4" };
-  if (type === "video/webm" || extension === "webm") return { file, type: "video", contentType: "video/webm" };
-  if (type === "application/pdf" || extension === "pdf") return { file, type: "pdf", contentType: "application/pdf" };
-  if (type === "image/jpeg" || extension === "jpg" || extension === "jpeg") return { file, type: "image", contentType: "image/jpeg" };
-  if (type === "image/png" || extension === "png") return { file, type: "image", contentType: "image/png" };
-  if (type === "image/webp" || extension === "webp") return { file, type: "image", contentType: "image/webp" };
-  if (type === "image/gif" || extension === "gif") return { file, type: "image", contentType: "image/gif" };
-  if (type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || extension === "xlsx") return { file, type: "spreadsheet", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
-  if (type === "application/vnd.ms-excel" || extension === "xls") return { file, type: "spreadsheet", contentType: "application/vnd.ms-excel" };
-  if (type === "text/csv" || extension === "csv") return { file, type: "spreadsheet", contentType: "text/csv" };
-  if (type === "application/msword" || extension === "doc") return { file, type: "document", contentType: "application/msword" };
-  if (type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || extension === "docx") return { file, type: "document", contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
-  if (type === "application/vnd.ms-powerpoint" || extension === "ppt") return { file, type: "document", contentType: "application/vnd.ms-powerpoint" };
-  if (type === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || extension === "pptx") return { file, type: "document", contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" };
-  return null;
 }
 
 function Dialog({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
@@ -144,7 +117,8 @@ function AssetEditor({
   const [source, setSource] = useState(asset?.storagePath ? "" : asset?.url ?? "");
   const [durationSeconds, setDurationSeconds] = useState(String(asset?.durationSeconds ?? 0));
   const [storagePath, setStoragePath] = useState<string | null>(asset?.storagePath ?? null);
-  const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
+  const [pendingFile, setPendingFile] = useState<PendingCourseAssetFile | null>(null);
+  const [isPrimary, setIsPrimary] = useState(asset?.isPrimary ?? false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const canUpload = type !== "text" && type !== "link";
@@ -165,7 +139,7 @@ function AssetEditor({
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const selectedFile = event.target.files?.[0] ?? null;
     if (!selectedFile) return;
-    const detected = detectFile(selectedFile);
+    const detected = detectCourseAssetFile(selectedFile);
     if (!detected) {
       setPendingFile(null);
       setError("Formato no admitido. Usá MP4, WebM, PDF, imagen, Excel, CSV, Word o PowerPoint.");
@@ -179,7 +153,7 @@ function AssetEditor({
     if (detected.type === "video") loadVideoDuration(selectedFile);
   }
 
-  async function uploadFile(file: PendingFile) {
+  async function uploadFile(file: PendingCourseAssetFile) {
     const signedUpload = await createCourseAssetUploadUrl({
       courseId: course.id,
       fileName: file.file.name,
@@ -196,6 +170,7 @@ function AssetEditor({
   function changeType(nextType: AssetType) {
     setType(nextType);
     setPendingFile(null);
+    if (nextType !== "video") setIsPrimary(false);
     if (asset?.storagePath) setStoragePath(null);
   }
 
@@ -219,6 +194,7 @@ function AssetEditor({
         courseId: location === "course" ? course.id : null,
         moduleId: location === "course" ? null : location,
         type,
+        isPrimary: location !== "course" && type === "video" && isPrimary,
         title,
         description: optional(description),
         url: type === "text" ? source : nextStoragePath ? "" : source,
@@ -242,7 +218,7 @@ function AssetEditor({
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="grid gap-2 text-sm font-medium" htmlFor="content-location">
           Ubicación
-          <select id="content-location" className="h-11 rounded-sm border bg-paper px-3 text-sm" value={location} onChange={(event) => setLocation(event.target.value)}>
+          <select id="content-location" className="h-11 rounded-sm border bg-paper px-3 text-sm" value={location} onChange={(event) => { setLocation(event.target.value); if (event.target.value === "course") setIsPrimary(false); }}>
             <option value="course">Recursos generales del curso</option>
             {modules.map((module, index) => <option value={module.id} key={module.id}>Módulo {index + 1}: {module.title}</option>)}
           </select>
@@ -295,7 +271,7 @@ function AssetEditor({
           <label className="mt-4 inline-flex h-10 cursor-pointer items-center gap-2 rounded-sm border bg-paper px-3 text-sm font-medium transition-colors hover:bg-surface">
             <Upload className="size-4" aria-hidden="true" />
             Seleccionar archivo
-            <input className="sr-only" type="file" accept={fileAccept} onChange={handleFileChange} />
+            <input className="sr-only" type="file" accept={courseAssetFileAccept} onChange={handleFileChange} />
           </label>
           {pendingFile ? <p className="mt-3 text-xs text-muted">{pendingFile.file.name} · {formatFileSize(pendingFile.file.size)} · {assetLabel(pendingFile.type)}</p> : null}
           {!pendingFile && storagePath ? <p className="mt-3 text-xs text-muted">Archivo privado cargado · {formatFileSize(asset?.sizeBytes ?? null)}</p> : null}
@@ -303,10 +279,13 @@ function AssetEditor({
       ) : null}
 
       {type === "video" ? (
-        <label className="grid gap-2 text-sm font-medium" htmlFor="content-duration">
-          Duración (segundos)
-          <input id="content-duration" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="number" min="1" value={durationSeconds} onChange={(event) => setDurationSeconds(event.target.value)} required />
-        </label>
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <label className="grid gap-2 text-sm font-medium" htmlFor="content-duration">
+            Duración (segundos)
+            <input id="content-duration" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="number" min="1" value={durationSeconds} onChange={(event) => setDurationSeconds(event.target.value)} required />
+          </label>
+          {location !== "course" ? <label className="flex h-11 items-center gap-3 text-sm"><input className="size-4 accent-jade" type="checkbox" checked={isPrimary} onChange={(event) => setIsPrimary(event.target.checked)} />Video principal del módulo</label> : null}
+        </div>
       ) : null}
 
       {error ? <p className="rounded-sm bg-[#FCEAE6] px-3 py-2 text-sm text-alert" role="alert">{error}</p> : null}
@@ -327,7 +306,7 @@ function AssetRow({ asset, onEdit, onRemove }: { asset: CourseContentAsset; onEd
         <span className="grid size-9 shrink-0 place-items-center bg-surface text-jade-deep"><Icon className="size-4" aria-hidden="true" /></span>
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{asset.title}</p>
-          <p className="mt-1 text-xs text-muted">{assetLabel(asset.type)}{asset.type === "video" ? ` · ${Math.max(1, Math.ceil(asset.durationSeconds / 60))} min` : ""}{asset.storagePath ? ` · ${formatFileSize(asset.sizeBytes)}` : " · Enlace externo"}</p>
+          <p className="mt-1 text-xs text-muted">{asset.isPrimary ? "Video principal · " : ""}{assetLabel(asset.type)}{asset.type === "video" ? ` · ${Math.max(1, Math.ceil(asset.durationSeconds / 60))} min` : ""}{asset.storagePath ? ` · ${formatFileSize(asset.sizeBytes)}` : " · Enlace externo"}</p>
         </div>
       </div>
       <div className="flex gap-1">

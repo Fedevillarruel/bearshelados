@@ -52,6 +52,7 @@ const assetSchema = z.object({
   courseId: identifier.nullable(),
   moduleId: identifier.nullable(),
   type: z.enum(assetTypes),
+  isPrimary: z.boolean().default(false),
   title: z.string().trim().min(2, "El contenido necesita un título.").max(160),
   description: nullableText,
   url: z.string().trim().max(5_000),
@@ -74,6 +75,9 @@ const assetSchema = z.object({
   }
   if (value.storagePath && !["video", "pdf", "image", "spreadsheet", "document"].includes(value.type)) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["storagePath"], message: "Solo podés subir archivos para videos, PDFs, imágenes, planillas y documentos." });
+  }
+  if (value.isPrimary && (value.type !== "video" || !value.moduleId)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["isPrimary"], message: "El video principal debe pertenecer a un módulo." });
   }
 });
 
@@ -241,6 +245,7 @@ export async function saveAsset(input: unknown) {
     course_id: asset.courseId,
     module_id: asset.moduleId,
     type: asset.type,
+    is_primary: asset.isPrimary,
     title: asset.title,
     description: asset.description,
     url: storedUrl,

@@ -39,8 +39,6 @@ async function createManagedUser(profile: z.infer<typeof createUserSchema>) {
     email_confirm: true,
     user_metadata: {
       full_name: profile.fullName,
-      role: profile.role,
-      franchise_id: profile.franchiseId,
     },
   });
   if (error || !result.user) return { error: error?.message ?? "No se pudo crear el usuario." };
@@ -147,7 +145,7 @@ export async function updateUser(input: unknown) {
 
   const { error: authError } = await admin.auth.admin.updateUserById(profile.id, {
     email: profile.email,
-    user_metadata: { full_name: profile.fullName, role: profile.role, franchise_id: profile.franchiseId ?? "" },
+    user_metadata: { full_name: profile.fullName },
   });
   if (authError) return { error: "No pudimos actualizar el correo de la cuenta." };
 

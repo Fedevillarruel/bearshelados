@@ -1,17 +1,19 @@
 "use client";
 
-import { startTransition, useState } from "react";
+import { startTransition, useState, type ChangeEvent, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, BookOpen, ChevronLeft, FilePlus2, FileText, ImageIcon, Link2, Pencil, Plus, Trash2, Upload, Users, Video, X } from "lucide-react";
 import { assignCourse, createCourseAssetUploadUrl, deleteAsset, deleteExam, deleteModule, reorderModules, saveAsset, saveExam, saveModule, unassignCourse } from "@/app/actions/courses";
+import { courseAssetFileAccept, detectCourseAssetFile, type CourseAssetType, type PendingCourseAssetFile } from "@/lib/course-asset-files";
 import { createClient } from "@/lib/supabase/client";
 
-type AssetType = "video" | "pdf" | "image" | "spreadsheet" | "document" | "text" | "link";
+type AssetType = CourseAssetType;
 
 export type BuilderAsset = {
   id: string;
   type: AssetType;
+  isPrimary: boolean;
   title: string;
   description: string | null;
   url: string;
@@ -77,31 +79,127 @@ function Dialog({ title, children, onClose }: { title: string; children: React.R
   return <div className="fixed inset-0 z-30 grid place-items-center bg-ink/40 p-5" role="presentation"><section className="max-h-[90vh] w-full max-w-3xl overflow-y-auto border border-line bg-paper p-5 shadow-xl sm:p-6" role="dialog" aria-modal="true" aria-labelledby="editor-dialog-title"><div className="mb-6 flex items-start justify-between gap-4"><h2 className="text-xl font-medium" id="editor-dialog-title">{title}</h2><button className="grid size-10 place-items-center rounded-sm transition-colors hover:bg-surface" type="button" onClick={onClose} aria-label="Cerrar"><X className="size-5" aria-hidden="true" /></button></div>{children}</section></div>;
 }
 
+type ModuleContentDraft = {
+  id: string;
+  type: AssetType;
+  title: string;
+  description: string;
+  source: string;
+  durationSeconds: string;
+  file: PendingCourseAssetFile | null;
+  isPrimary: boolean;
+};
+
+function newModuleContentDraft(): ModuleContentDraft {
+  return { id: crypto.randomUUID(), type: "video", title: "", description: "", source: "", durationSeconds: "", file: null, isPrimary: false };
+}
+
+async function uploadCourseAssetFile(courseId: string, pendingFile: PendingCourseAssetFile) {
+  const signedUpload = await createCourseAssetUploadUrl({ courseId, fileName: pendingFile.file.name, contentType: pendingFile.contentType, fileSize: pendingFile.file.size });
+  if ("error" in signedUpload && signedUpload.error) return { error: signedUpload.error };
+  if (!("data" in signedUpload) || !signedUpload.data) return { error: "No pudimos preparar la subida del archivo." };
+  const supabase = createClient();
+  const { error } = await supabase.storage.from("course-media").uploadToSignedUrl(signedUpload.data.path, signedUpload.data.token, pendingFile.file);
+  return error ? { error: "No pudimos subir el archivo." } : { data: signedUpload.data.path };
+}
+
 function ModuleForm({ courseId, courseModule, nextOrderIndex, onClose }: { courseId: string; courseModule?: BuilderModule; nextOrderIndex: number; onClose: () => void }) {
   const router = useRouter();
   const [title, setTitle] = useState(courseModule?.title ?? "");
   const [description, setDescription] = useState(courseModule?.description ?? "");
   const [isPublished, setIsPublished] = useState(courseModule?.isPublished ?? true);
+  const [drafts, setDrafts] = useState<ModuleContentDraft[]>([]);
+  const [savedModuleId, setSavedModuleId] = useState<string | null>(courseModule?.id ?? null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  function updateDraft(draftId: string, changes: Partial<ModuleContentDraft>) {
+    setDrafts((current) => current.map((draft) => draft.id === draftId ? { ...draft, ...changes } : draft));
+  }
+
+  function makePrimary(draftId: string, isPrimary: boolean) {
+    setDrafts((current) => current.map((draft) => ({ ...draft, isPrimary: draft.id === draftId ? isPrimary : false })));
+  }
+
+  function loadVideoDuration(draftId: string, file: File) {
+    const preview = document.createElement("video");
+    const objectUrl = URL.createObjectURL(file);
+    preview.preload = "metadata";
+    preview.onloadedmetadata = () => {
+      if (Number.isFinite(preview.duration) && preview.duration > 0) updateDraft(draftId, { durationSeconds: String(Math.ceil(preview.duration)) });
+      URL.revokeObjectURL(objectUrl);
+    };
+    preview.onerror = () => URL.revokeObjectURL(objectUrl);
+    preview.src = objectUrl;
+  }
+
+  function handleDraftFile(draftId: string, event: ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) return;
+    const detected = detectCourseAssetFile(selectedFile);
+    if (!detected) {
+      setError("Formato no admitido. Usá MP4, WebM, PDF, imagen, Excel, CSV, Word o PowerPoint.");
+      return;
+    }
+    setError(null);
+    setDrafts((current) => current.map((draft) => draft.id === draftId ? { ...draft, type: detected.type, file: detected, title: draft.title.trim() || selectedFile.name.replace(/\.[^.]+$/, ""), isPrimary: detected.type === "video" ? draft.isPrimary : false } : draft));
+    if (detected.type === "video") loadVideoDuration(draftId, selectedFile);
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError(null);
     startTransition(async () => {
-      const response = await saveModule({ id: courseModule?.id, courseId, title, description: optional(description), orderIndex: courseModule?.orderIndex ?? nextOrderIndex, isPublished });
-      setSaving(false);
+      const response = await saveModule({ id: savedModuleId, courseId, title, description: optional(description), orderIndex: courseModule?.orderIndex ?? nextOrderIndex, isPublished });
       if ("error" in response && response.error) {
+        setSaving(false);
         setError(response.error);
         return;
       }
+      if (!("data" in response) || !response.data) {
+        setSaving(false);
+        setError("No pudimos guardar el módulo.");
+        return;
+      }
+      const moduleId = response.data.id;
+      setSavedModuleId(moduleId);
+      const baseOrderIndex = Math.max(0, ...(courseModule?.assets.map((asset) => asset.orderIndex) ?? []));
+      for (const [index, draft] of drafts.entries()) {
+        let storagePath: string | null = null;
+        if (draft.file) {
+          const upload = await uploadCourseAssetFile(courseId, draft.file);
+          if ("error" in upload && upload.error) {
+            setSaving(false);
+            setError(`El módulo se guardó, pero no pudimos cargar “${draft.title}”: ${upload.error}`);
+            router.refresh();
+            return;
+          }
+          storagePath = "data" in upload ? upload.data ?? null : null;
+        }
+        const savedAsset = await saveAsset({ courseId: null, moduleId, type: draft.type, isPrimary: draft.type === "video" && draft.isPrimary, title: draft.title, description: optional(draft.description), url: draft.type === "text" ? draft.source : storagePath ? "" : draft.source, storagePath, durationSeconds: Number(draft.durationSeconds), sizeBytes: draft.file?.file.size ?? null, orderIndex: baseOrderIndex + index + 1 });
+        if ("error" in savedAsset && savedAsset.error) {
+          setSaving(false);
+          setError(`El módulo se guardó, pero no pudimos cargar “${draft.title}”: ${savedAsset.error}`);
+          router.refresh();
+          return;
+        }
+        setDrafts((current) => current.filter((candidate) => candidate.id !== draft.id));
+      }
+      setSaving(false);
       router.refresh();
       onClose();
     });
   }
 
-  return <form className="grid gap-4" onSubmit={submit}><label className="grid gap-2 text-sm font-medium" htmlFor="module-title">Título<input id="module-title" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" value={title} onChange={(event) => setTitle(event.target.value)} required /></label><label className="grid gap-2 text-sm font-medium" htmlFor="module-description">Descripción<textarea id="module-description" className="min-h-28 resize-y rounded-sm border bg-paper px-3 py-2 text-sm outline-none focus:border-jade" value={description} onChange={(event) => setDescription(event.target.value)} /></label><label className="flex min-h-11 items-center gap-3 text-sm"><input className="size-4 accent-jade" type="checkbox" checked={isPublished} onChange={(event) => setIsPublished(event.target.checked)} />Publicado para participantes</label>{error ? <p className="rounded-sm bg-[#FCEAE6] px-3 py-2 text-sm text-alert" role="alert">{error}</p> : null}<div className="mt-2 flex justify-end gap-3"><button className="h-11 rounded-sm border px-4 text-sm" type="button" onClick={onClose} disabled={saving}>Cancelar</button><button className="h-11 rounded-sm bg-jade px-4 text-sm font-medium text-white disabled:opacity-60" type="submit" disabled={saving}>{saving ? "Guardando" : "Guardar módulo"}</button></div></form>;
+  return <form className="grid gap-5" onSubmit={submit}>
+    <label className="grid gap-2 text-sm font-medium" htmlFor="module-title">Título<input id="module-title" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" value={title} onChange={(event) => setTitle(event.target.value)} required /></label>
+    <label className="grid gap-2 text-sm font-medium" htmlFor="module-description">Descripción<textarea id="module-description" className="min-h-28 resize-y rounded-sm border bg-paper px-3 py-2 text-sm outline-none focus:border-jade" value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+    {!courseModule ? <section className="border border-line bg-surface p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-medium">Contenido inicial</p><p className="mt-1 text-xs leading-5 text-muted">Opcional. Podés sumar videos, archivos, texto o enlaces al crear la lección.</p></div><button className="inline-flex h-9 items-center gap-2 rounded-sm border bg-paper px-3 text-sm font-medium hover:bg-surface" type="button" onClick={() => setDrafts((current) => [...current, newModuleContentDraft()])}><Plus className="size-4" aria-hidden="true" />Agregar contenido</button></div>{drafts.length ? <div className="mt-4 grid gap-4">{drafts.map((draft, index) => <article className="border border-line bg-paper p-4" key={draft.id}><div className="mb-4 flex items-center justify-between gap-3"><p className="text-sm font-medium">Contenido {index + 1}</p><button className="grid size-8 place-items-center rounded-sm text-alert hover:bg-[#FCEAE6]" type="button" aria-label={`Quitar contenido ${index + 1}`} title="Quitar contenido" onClick={() => setDrafts((current) => current.filter((candidate) => candidate.id !== draft.id))}><Trash2 className="size-4" aria-hidden="true" /></button></div><div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-2 text-sm font-medium" htmlFor={`draft-type-${draft.id}`}>Tipo<select id={`draft-type-${draft.id}`} className="h-11 rounded-sm border bg-paper px-3 text-sm" value={draft.type} onChange={(event) => updateDraft(draft.id, { type: event.target.value as AssetType, file: null, isPrimary: event.target.value === "video" ? draft.isPrimary : false })}><option value="video">Video</option><option value="pdf">PDF</option><option value="image">Imagen</option><option value="spreadsheet">Planilla Excel o CSV</option><option value="document">Documento</option><option value="text">Texto</option><option value="link">Enlace</option></select></label><label className="grid gap-2 text-sm font-medium" htmlFor={`draft-title-${draft.id}`}>Título<input id={`draft-title-${draft.id}`} className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" value={draft.title} onChange={(event) => updateDraft(draft.id, { title: event.target.value })} required /></label></div><label className="mt-4 grid gap-2 text-sm font-medium" htmlFor={`draft-description-${draft.id}`}>Descripción<input id={`draft-description-${draft.id}`} className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" value={draft.description} onChange={(event) => updateDraft(draft.id, { description: event.target.value })} /></label>{draft.type === "text" ? <label className="mt-4 grid gap-2 text-sm font-medium" htmlFor={`draft-source-${draft.id}`}>Contenido<textarea id={`draft-source-${draft.id}`} className="min-h-32 resize-y rounded-sm border bg-paper px-3 py-2 text-sm outline-none focus:border-jade" value={draft.source} onChange={(event) => updateDraft(draft.id, { source: event.target.value })} required /></label> : <label className="mt-4 grid gap-2 text-sm font-medium" htmlFor={`draft-source-${draft.id}`}>URL externa (opcional si subís un archivo)<input id={`draft-source-${draft.id}`} className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="url" placeholder="https://" value={draft.source} onChange={(event) => updateDraft(draft.id, { source: event.target.value })} required={!draft.file} /></label>}{draft.type !== "text" && draft.type !== "link" ? <label className="mt-4 inline-flex h-10 cursor-pointer items-center gap-2 rounded-sm border px-3 text-sm font-medium hover:bg-surface"><Upload className="size-4" aria-hidden="true" />Seleccionar archivo<input className="sr-only" type="file" accept={courseAssetFileAccept} onChange={(event) => handleDraftFile(draft.id, event)} /></label> : null}{draft.file ? <p className="mt-2 text-xs text-muted">{draft.file.file.name}</p> : null}{draft.type === "video" ? <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><label className="grid gap-2 text-sm font-medium" htmlFor={`draft-duration-${draft.id}`}>Duración (segundos)<input id={`draft-duration-${draft.id}`} className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="number" min="1" value={draft.durationSeconds} onChange={(event) => updateDraft(draft.id, { durationSeconds: event.target.value })} required /></label><label className="flex h-11 items-center gap-3 text-sm"><input className="size-4 accent-jade" type="checkbox" checked={draft.isPrimary} onChange={(event) => makePrimary(draft.id, event.target.checked)} />Video principal</label></div> : null}</article>)}</div> : null}</section> : null}
+    <label className="flex min-h-11 items-center gap-3 text-sm"><input className="size-4 accent-jade" type="checkbox" checked={isPublished} onChange={(event) => setIsPublished(event.target.checked)} />Publicado para participantes</label>
+    {error ? <p className="rounded-sm bg-[#FCEAE6] px-3 py-2 text-sm text-alert" role="alert">{error}</p> : null}
+    <div className="flex justify-end gap-3 border-t border-line pt-5"><button className="h-11 rounded-sm border px-4 text-sm" type="button" onClick={onClose} disabled={saving}>Cancelar</button><button className="h-11 rounded-sm bg-jade px-4 text-sm font-medium text-white disabled:opacity-60" type="submit" disabled={saving}>{saving ? "Guardando" : savedModuleId ? "Guardar cambios" : "Crear módulo"}</button></div>
+  </form>;
 }
 
 function AssetForm({ course, courseModule, asset, onClose }: { course: BuilderCourse; courseModule: BuilderModule; asset?: BuilderAsset; onClose: () => void }) {

@@ -23,15 +23,16 @@ export default async function CourseContentPage({ params }: CourseContentPagePro
   const sourceModules = moduleData ?? [];
   const moduleIds = sourceModules.map((module) => module.id);
   const [{ data: courseAssetData }, { data: moduleAssetData }] = await Promise.all([
-    supabase.from("assets").select("id, course_id, module_id, type, title, description, url, storage_path, duration_seconds, size_bytes, order_index").eq("course_id", courseData.id).order("order_index"),
-    moduleIds.length ? supabase.from("assets").select("id, course_id, module_id, type, title, description, url, storage_path, duration_seconds, size_bytes, order_index").in("module_id", moduleIds).order("order_index") : Promise.resolve({ data: [] }),
+    supabase.from("assets").select("id, course_id, module_id, type, is_primary, title, description, url, storage_path, duration_seconds, size_bytes, order_index").eq("course_id", courseData.id).order("order_index"),
+    moduleIds.length ? supabase.from("assets").select("id, course_id, module_id, type, is_primary, title, description, url, storage_path, duration_seconds, size_bytes, order_index").in("module_id", moduleIds).order("order_index") : Promise.resolve({ data: [] }),
   ]);
 
-  const toAsset = (asset: { id: string; course_id: string | null; module_id: string | null; type: CourseContentAsset["type"]; title: string; description: string | null; url: string; storage_path: string | null; duration_seconds: number; size_bytes: number | null; order_index: number }): CourseContentAsset => ({
+  const toAsset = (asset: { id: string; course_id: string | null; module_id: string | null; type: CourseContentAsset["type"]; is_primary: boolean; title: string; description: string | null; url: string; storage_path: string | null; duration_seconds: number; size_bytes: number | null; order_index: number }): CourseContentAsset => ({
     id: asset.id,
     courseId: asset.course_id,
     moduleId: asset.module_id,
     type: asset.type,
+    isPrimary: asset.is_primary,
     title: asset.title,
     description: asset.description,
     url: asset.url,

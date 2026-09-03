@@ -138,7 +138,7 @@ function ResourceList({ resources, selectedAssetId, onSelect }: { resources: Pla
       {resources.map(({ asset, scope }) => {
         const Icon = resourceIcon(asset.type);
         const active = asset.id === selectedAssetId;
-        return <li key={asset.id}><button className={`flex min-h-16 w-full items-center gap-3 px-3 py-3 text-left transition-colors ${active ? "bg-sand-soft" : "hover:bg-surface"}`} type="button" onClick={() => onSelect(asset.id)} aria-current={active ? "true" : undefined}><span className={`grid size-8 shrink-0 place-items-center ${active ? "bg-jade text-white" : "bg-surface text-jade-deep"}`}><Icon className="size-4" aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{asset.title}</span><span className="mt-1 block text-xs text-muted">{scope === "course" ? "Recurso del curso" : resourceLabel(asset.type)}{asset.type === "video" ? ` · ${formatMinutes(asset.duration_seconds)}` : ""}</span></span></button></li>;
+        return <li key={asset.id}><button className={`flex min-h-16 w-full items-center gap-3 px-3 py-3 text-left transition-colors ${active ? "bg-sand-soft" : "hover:bg-surface"}`} type="button" onClick={() => onSelect(asset.id)} aria-current={active ? "true" : undefined}><span className={`grid size-8 shrink-0 place-items-center ${active ? "bg-jade text-white" : "bg-surface text-jade-deep"}`}><Icon className="size-4" aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{asset.title}</span><span className="mt-1 block text-xs text-muted">{asset.is_primary ? "Video principal" : scope === "course" ? "Recurso del curso" : resourceLabel(asset.type)}{asset.type === "video" ? ` · ${formatMinutes(asset.duration_seconds)}` : ""}</span></span></button></li>;
       })}
     </ol>
   );
@@ -151,7 +151,7 @@ export function AdaptiveCoursePlayer({ data }: { data: EmployeeCourseModule }) {
     ...data.assets.map((asset) => ({ asset, scope: "module" as const })),
     ...data.courseAssets.map((asset) => ({ asset, scope: "course" as const })),
   ];
-  const firstResourceId = resources.find(({ asset }) => asset.type === "video")?.asset.id ?? resources[0]?.asset.id ?? null;
+  const firstResourceId = resources.find(({ asset }) => asset.is_primary)?.asset.id ?? resources.find(({ asset }) => asset.type === "video")?.asset.id ?? resources[0]?.asset.id ?? null;
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(firstResourceId);
   const selectedAsset = resources.find(({ asset }) => asset.id === selectedAssetId)?.asset ?? resources[0]?.asset;
   const visibleExams = [...data.exams, ...data.courseExams];
