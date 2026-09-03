@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const nullableFranchiseId = z.preprocess(
+  (value) => typeof value === "string" ? value.trim() || null : value ?? null,
+  z.string().uuid("Elegí una franquicia válida.").nullable(),
+);
+
 export const signInSchema = z.object({
   email: z.string().trim().email("Ingresá un correo válido."),
   password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres."),
@@ -10,7 +15,7 @@ export const createUserSchema = z.object({
   password: z.string().min(12, "La contraseña debe tener al menos 12 caracteres."),
   fullName: z.string().trim().min(2, "Ingresá el nombre completo."),
   role: z.enum(["admin", "franquiciado", "empleado"]),
-  franchiseId: z.string().uuid().nullable(),
+  franchiseId: nullableFranchiseId,
   position: z.string().trim().max(100).nullable(),
   phone: z.string().trim().max(30).nullable(),
   mustChangePassword: z.boolean().default(true),

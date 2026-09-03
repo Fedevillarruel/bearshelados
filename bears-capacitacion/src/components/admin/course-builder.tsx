@@ -7,7 +7,7 @@ import { ArrowDown, ArrowUp, BookOpen, ChevronLeft, FilePlus2, FileText, ImageIc
 import { assignCourse, createCourseAssetUploadUrl, deleteAsset, deleteExam, deleteModule, reorderModules, saveAsset, saveExam, saveModule, unassignCourse } from "@/app/actions/courses";
 import { createClient } from "@/lib/supabase/client";
 
-type AssetType = "video" | "pdf" | "image" | "text" | "link";
+type AssetType = "video" | "pdf" | "image" | "spreadsheet" | "document" | "text" | "link";
 
 export type BuilderAsset = {
   id: string;

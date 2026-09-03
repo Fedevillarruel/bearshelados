@@ -8,8 +8,7 @@ export function ThemeToggle() {
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("bears-theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const dark = savedTheme ? savedTheme === "dark" : prefersDark;
+    const dark = savedTheme === "dark";
     document.documentElement.classList.toggle("dark", dark);
     setIsDark(dark);
   }, []);

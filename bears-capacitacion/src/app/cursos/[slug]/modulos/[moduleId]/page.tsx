@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { EmployeeCoursePlayer } from "@/components/learning/employee-course-player";
+import { AdaptiveCoursePlayer } from "@/components/learning/adaptive-course-player";
 import { CoursePlayer } from "@/components/portal/portal-shell";
 import { requireRole } from "@/lib/auth/roles";
 import { getEmployeeCourseModule } from "@/lib/platform/employee";
@@ -17,5 +17,5 @@ export default async function CourseModulePage({ params }: CourseModulePageProps
 	const data = await getEmployeeCourseModule(viewer, slug, moduleId);
 	if (!data) notFound();
 
-	return <EmployeeCoursePlayer data={data} />;
+	return <AdaptiveCoursePlayer data={data} />;
 }

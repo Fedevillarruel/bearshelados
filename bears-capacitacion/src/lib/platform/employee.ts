@@ -36,13 +36,15 @@ type ModuleRow = {
 
 type AssetRow = {
   id: string;
+  course_id: string | null;
   module_id: string | null;
-  type: "video" | "pdf" | "image" | "text" | "link";
+  type: "video" | "pdf" | "image" | "spreadsheet" | "document" | "text" | "link";
   title: string;
   description: string | null;
   url: string;
   storage_path: string | null;
   duration_seconds: number;
+  size_bytes: number | null;
   order_index: number;
 };
 
@@ -102,6 +104,7 @@ export type EmployeeCourseModule = {
   modules: EmployeeModule[];
   currentModule: EmployeeModule;
   assets: EmployeeAsset[];
+  courseAssets: EmployeeAsset[];
   exams: ExamRow[];
   courseExams: ExamRow[];
   previousModule: EmployeeModule | null;
@@ -188,11 +191,16 @@ export async function getEmployeeCourseModule(viewer: Viewer, slug: string, modu
   if (currentIndex < 0) return null;
   const currentModule = modules[currentIndex];
 
-  const [{ data: assetData }, { data: examData }, { data: courseExamData }] = await Promise.all([
+  const [{ data: assetData }, { data: courseAssetData }, { data: examData }, { data: courseExamData }] = await Promise.all([
     supabase
       .from("assets")
-      .select("id, module_id, type, title, description, url, storage_path, duration_seconds, order_index")
+      .select("id, course_id, module_id, type, title, description, url, storage_path, duration_seconds, size_bytes, order_index")
       .eq("module_id", currentModule.id)
+      .order("order_index"),
+    supabase
+      .from("assets")
+      .select("id, course_id, module_id, type, title, description, url, storage_path, duration_seconds, size_bytes, order_index")
+      .eq("course_id", course.id)
       .order("order_index"),
     supabase
       .from("exams")
@@ -208,24 +216,32 @@ export async function getEmployeeCourseModule(viewer: Viewer, slug: string, modu
       : Promise.resolve({ data: [] }),
   ]);
   const assets = (assetData ?? []) as AssetRow[];
-  const videoAssetIds = assets.filter((asset) => asset.type === "video").map((asset) => asset.id);
+  const courseAssets = (courseAssetData ?? []) as AssetRow[];
+  const allAssets = [...assets, ...courseAssets];
+  const videoAssetIds = allAssets.filter((asset) => asset.type === "video").map((asset) => asset.id);
   const { data: progressData } = videoAssetIds.length
     ? await supabase.from("video_progress").select("asset_id, last_position, watched_ranges, completed").eq("user_id", viewer.id).in("asset_id", videoAssetIds)
     : { data: [] };
   const progressByAssetId = new Map(((progressData ?? []) as VideoProgressRow[]).map((progress) => [progress.asset_id, progress]));
-  const admin = assets.some((asset) => asset.storage_path) ? createAdminClient() : null;
-  const accessibleAssets = await Promise.all(assets.map(async (asset) => {
+  const admin = allAssets.some((asset) => asset.storage_path) ? createAdminClient() : null;
+  const accessibleAssets = await Promise.all(allAssets.map(async (asset) => {
     if (!asset.storage_path || !admin) return asset;
     const { data: signedAsset, error } = await admin.storage.from("course-media").createSignedUrl(asset.storage_path, 60 * 60);
     return error || !signedAsset?.signedUrl ? null : { ...asset, url: signedAsset.signedUrl };
   }));
+  const accessibleById = new Map(accessibleAssets.flatMap((asset) => asset ? [[asset.id, asset] as const] : []));
+  const withProgress = (asset: AssetRow): EmployeeAsset[] => {
+    const accessibleAsset = accessibleById.get(asset.id);
+    return accessibleAsset ? [{ ...accessibleAsset, progress: progressByAssetId.get(asset.id) }] : [];
+  };
 
   return {
     course,
     enrollment,
     modules,
     currentModule,
-    assets: accessibleAssets.flatMap((asset) => asset ? [{ ...asset, progress: progressByAssetId.get(asset.id) }] : []),
+    assets: assets.flatMap(withProgress),
+    courseAssets: courseAssets.flatMap(withProgress),
     exams: (examData ?? []) as ExamRow[],
     courseExams: (courseExamData ?? []) as ExamRow[],
     previousModule: modules[currentIndex - 1] ?? null,

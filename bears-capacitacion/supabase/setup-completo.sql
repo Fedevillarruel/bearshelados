@@ -257,8 +257,12 @@ begin
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', ''),
-    coalesce((new.raw_user_meta_data->>'role')::public.app_role, 'empleado'),
-    nullif(new.raw_user_meta_data->>'franchise_id', '')::uuid
+    'empleado'::public.app_role,
+    case
+      when coalesce(new.raw_user_meta_data->>'franchise_id', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then (new.raw_user_meta_data->>'franchise_id')::uuid
+      else null
+    end
   );
   return new;
 end;
@@ -415,8 +419,8 @@ create policy "user updates own avatar" on storage.objects for insert with check
 alter table public.profiles add column must_change_password boolean not null default false;
 alter table public.profiles add column last_seen_at timestamptz;
 
-alter table public.profiles add constraint franchise_required_for_team check (
-  role = 'admin' or franchise_id is not null
+alter table public.profiles add constraint franchise_required_for_manager check (
+  role <> 'franquiciado' or franchise_id is not null
 );
 
 create table public.manual_downloads (
@@ -1012,6 +1016,67 @@ grant execute on function public.claim_tiendanube_privacy_requests(integer) to s
 -- END: supabase/migrations/010_tiendanube_workers.sql
 
 -- ============================================================================
+-- BEGIN: supabase/migrations/011_course_asset_files.sql
+-- ============================================================================
+-- Extend course resources beyond video, PDF, images, text, and links.
+alter type public.asset_type add value if not exists 'spreadsheet';
+alter type public.asset_type add value if not exists 'document';
+-- END: supabase/migrations/011_course_asset_files.sql
+
+-- ============================================================================
+-- BEGIN: supabase/migrations/012_harden_user_access.sql
+-- ============================================================================
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id, email, full_name, role, franchise_id)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data->>'full_name', ''),
+    'empleado'::public.app_role,
+    case
+      when coalesce(new.raw_user_meta_data->>'franchise_id', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then (new.raw_user_meta_data->>'franchise_id')::uuid
+      else null
+    end
+  )
+  on conflict (id) do update set
+    email = excluded.email,
+    full_name = excluded.full_name;
+  return new;
+end;
+$$;
+
+alter table public.profiles drop constraint if exists franchise_required_for_team;
+alter table public.profiles drop constraint if exists franchise_required_for_manager;
+alter table public.profiles add constraint franchise_required_for_manager check (
+  role <> 'franquiciado' or franchise_id is not null
+);
+
+drop policy if exists "admin manages profiles" on public.profiles;
+drop policy if exists "admin manages non-super-admin profiles" on public.profiles;
+drop policy if exists "super admins manage profiles" on public.profiles;
+drop policy if exists "admins manage team profiles" on public.profiles;
+
+create policy "super admins manage profiles" on public.profiles for all using (
+  public.is_super_admin()
+) with check (
+  public.is_super_admin()
+);
+
+create policy "admins manage team profiles" on public.profiles for all using (
+  public.is_admin()
+  and not is_super_admin
+  and role <> 'admin'
+) with check (
+  public.is_admin()
+  and not is_super_admin
+  and role <> 'admin'
+);
+-- END: supabase/migrations/012_harden_user_access.sql
+
+-- ============================================================================
 -- BEGIN: supabase/seed.sql
 -- ============================================================================
 -- Demo data. Run after 001 through 006. URLs are placeholders and must be replaced with Bears material.
@@ -1036,7 +1101,21 @@ select gen_random_uuid(), id, jsonb_build_object('sub', id::text, 'email', email
 from auth.users where id::text like 'b1000000-%'
 on conflict (provider, provider_id) do nothing;
 
-update public.profiles set position = case id
+update public.profiles set
+  role = case id
+    when 'b1000000-0000-0000-0000-000000000001' then 'franquiciado'::public.app_role
+    when 'b1000000-0000-0000-0000-000000000002' then 'franquiciado'::public.app_role
+    else 'empleado'::public.app_role
+  end,
+  franchise_id = case id
+    when 'b1000000-0000-0000-0000-000000000001' then 'a1000000-0000-0000-0000-000000000001'::uuid
+    when 'b1000000-0000-0000-0000-000000000002' then 'a1000000-0000-0000-0000-000000000002'::uuid
+    when 'b1000000-0000-0000-0000-000000000011' then 'a1000000-0000-0000-0000-000000000001'::uuid
+    when 'b1000000-0000-0000-0000-000000000012' then 'a1000000-0000-0000-0000-000000000001'::uuid
+    when 'b1000000-0000-0000-0000-000000000013' then 'a1000000-0000-0000-0000-000000000002'::uuid
+    when 'b1000000-0000-0000-0000-000000000014' then 'a1000000-0000-0000-0000-000000000002'::uuid
+  end,
+  position = case id
   when 'b1000000-0000-0000-0000-000000000011' then 'Encargada de salón'
   when 'b1000000-0000-0000-0000-000000000012' then 'Atención al cliente'
   when 'b1000000-0000-0000-0000-000000000013' then 'Cajera'

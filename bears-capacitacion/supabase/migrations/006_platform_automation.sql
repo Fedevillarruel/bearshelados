@@ -1,8 +1,8 @@
 alter table public.profiles add column must_change_password boolean not null default false;
 alter table public.profiles add column last_seen_at timestamptz;
 
-alter table public.profiles add constraint franchise_required_for_team check (
-  role = 'admin' or franchise_id is not null
+alter table public.profiles add constraint franchise_required_for_manager check (
+  role <> 'franquiciado' or franchise_id is not null
 );
 
 create table public.manual_downloads (

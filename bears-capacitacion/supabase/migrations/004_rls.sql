@@ -21,8 +21,12 @@ begin
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', ''),
-    coalesce((new.raw_user_meta_data->>'role')::public.app_role, 'empleado'),
-    nullif(new.raw_user_meta_data->>'franchise_id', '')::uuid
+    'empleado'::public.app_role,
+    case
+      when coalesce(new.raw_user_meta_data->>'franchise_id', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then (new.raw_user_meta_data->>'franchise_id')::uuid
+      else null
+    end
   );
   return new;
 end;

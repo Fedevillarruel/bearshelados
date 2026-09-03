@@ -26,6 +26,8 @@ No ejecutes nuevamente `supabase/setup-completo.sql`. Ejecutá una vez `supabase
 ```text
 supabase/migrations/009_tiendanube_foundation.sql
 supabase/migrations/010_tiendanube_workers.sql
+supabase/migrations/011_course_asset_files.sql
+supabase/migrations/012_harden_user_access.sql
 ```
 
 Si `supabase/seed.sql` informa que `public.profiles` no existe, la instalación anterior se revirtió antes de crear el esquema base. Comprobá que las tablas estén ausentes con:
@@ -41,6 +43,8 @@ select
 Cuando las cuatro columnas devuelvan `null`, el proyecto está vacío a efectos de la aplicación: ejecutá la versión actual de `supabase/setup-completo.sql` una sola vez. El instalador ahora reutiliza de forma segura un administrador existente en Supabase Auth y crea su perfil activo.
 
 Las migraciones `001` a `008` son el historial para instalaciones incrementales anteriores. En un entorno existente que todavía no las tenga, aplicalas primero en orden numérico; `007_admin_user.sql` es sólo la alternativa SQL para crear el administrador inicial.
+
+Si el proyecto ya estaba instalado antes de esta actualización, aplicá `011_course_asset_files.sql` y luego `012_harden_user_access.sql`. No ejecutes nuevamente `setup-completo.sql` sobre una instalación existente.
 
 ## Variables de entorno
 
@@ -68,6 +72,7 @@ openssl rand -base64 48  # CRON_SECRET
 ## Storage y acceso
 
 - `course-media` y `manuals` son privados y se entregan con URLs firmadas de corta duración.
+- Los cursos admiten videos MP4/WebM, PDF, imágenes, Excel/XLSX, CSV, Word y PowerPoint desde el gestor de contenido.
 - `avatars` es público y está organizado por ID de usuario.
 - Todas las tablas tienen RLS. Las Server Actions vuelven a validar roles en el servidor.
 - El endpoint de video comprueba sesión y permiso sobre el activo antes de registrar rangos vistos.

@@ -5,11 +5,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useRouter } from "next/navigation";
-import { Check, Eye, EyeOff, FileUp, KeyRound, Pencil, Plus, Search, UserRoundX, X } from "lucide-react";
-import { createUser, createUsersFromCsv, resetUserPassword, updateUser } from "@/app/actions/auth";
+import { Check, Eye, EyeOff, FileUp, KeyRound, Pencil, Plus, Search, ShieldCheck, ShieldOff, UserRoundX, X } from "lucide-react";
+import { createUser, createUsersFromCsv, resetUserPassword, setUserCommercialAccess, updateUser } from "@/app/actions/auth";
 
 type Franchise = { id: string; name: string; code: string | null };
-type ManagedUser = { id: string; email: string; fullName: string | null; role: "admin" | "franquiciado" | "empleado"; franchiseId: string | null; position: string | null; phone: string | null; isActive: boolean; mustChangePassword: boolean };
+type ManagedUser = { id: string; email: string; fullName: string | null; role: "admin" | "franquiciado" | "empleado"; franchiseId: string | null; position: string | null; phone: string | null; isActive: boolean; mustChangePassword: boolean; isSuperAdmin: boolean };
 
 const formSchema = z.object({
   email: z.string().trim().email("Ingresá un correo válido."),
@@ -63,10 +63,11 @@ function PasswordInput({ id, value, onChange, label = "Contraseña" }: { id: str
   return <label className="grid gap-2 text-sm font-medium" htmlFor={id}>{label}<span className="relative"><input id={id} className="h-11 w-full rounded-sm border bg-paper px-3 pr-12 text-sm outline-none focus:border-jade" type={visible ? "text" : "password"} autoComplete="new-password" value={value} onChange={(event) => onChange(event.target.value)} required /><button className="absolute inset-y-0 right-0 grid w-12 place-items-center text-muted hover:text-ink" type="button" onClick={() => setVisible((current) => !current)} aria-label={visible ? "Ocultar contraseña" : "Mostrar contraseña"}>{visible ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}</button></span></label>;
 }
 
-function UserForm({ franchises, user, onClose }: { franchises: Franchise[]; user?: ManagedUser; onClose: () => void }) {
+function UserFormFields({ franchises, user, onClose, canManageAdmins }: { franchises: Franchise[]; user?: ManagedUser; onClose: () => void; canManageAdmins: boolean }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUpdatingCommercialAccess, setIsUpdatingCommercialAccess] = useState(false);
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -81,6 +82,31 @@ function UserForm({ franchises, user, onClose }: { franchises: Franchise[]; user
     },
   });
   const role = form.watch("role");
+  const protectedAccount = Boolean(user && !canManageAdmins && (user.role === "admin" || user.isSuperAdmin));
+
+  if (protectedAccount) return <p className="rounded-sm bg-sand-soft px-3 py-3 text-sm leading-6 text-ink" role="alert">Solo la superadministración puede editar una cuenta administradora o con acceso comercial.</p>;
+
+  function changeCommercialAccess() {
+    if (!user) return;
+    const nextValue = !user.isSuperAdmin;
+    const message = nextValue
+      ? `¿Conceder acceso comercial de Tiendanube a ${user.fullName ?? user.email}?`
+      : `¿Revocar el acceso comercial de Tiendanube a ${user.fullName ?? user.email}? Se cerrarán sus sesiones activas.`;
+    if (!window.confirm(message)) return;
+
+    setError(null);
+    setIsUpdatingCommercialAccess(true);
+    startTransition(async () => {
+      const response = await setUserCommercialAccess({ userId: user.id, isSuperAdmin: nextValue });
+      setIsUpdatingCommercialAccess(false);
+      if ("error" in response && response.error) {
+        setError(response.error);
+        return;
+      }
+      router.refresh();
+      onClose();
+    });
+  }
 
   function submit(values: FormValues) {
     setError(null);
@@ -98,10 +124,10 @@ function UserForm({ franchises, user, onClose }: { franchises: Franchise[]; user
     });
   }
 
-  return <form className="grid gap-4" onSubmit={form.handleSubmit(submit)}><div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-2 text-sm font-medium" htmlFor="user-full-name">Nombre completo<input id="user-full-name" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("fullName")} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="user-email">Correo electrónico<input id="user-email" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="email" autoComplete="email" {...form.register("email")} /></label></div>{!user ? <div><PasswordInput id="user-password" value={form.watch("password")} onChange={(password) => form.setValue("password", password, { shouldValidate: true })} /><button className="mt-2 inline-flex h-8 items-center gap-2 text-xs font-medium text-jade-deep hover:underline" type="button" onClick={() => form.setValue("password", generatePassword(), { shouldValidate: true })}><KeyRound className="size-3.5" aria-hidden="true" />Generar contraseña segura</button></div> : null}<div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-2 text-sm font-medium" htmlFor="user-role">Rol<select id="user-role" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("role")}><option value="empleado">Empleado</option><option value="franquiciado">Franquiciado</option><option value="admin">Administrador</option></select></label><label className="grid gap-2 text-sm font-medium" htmlFor="user-franchise">Franquicia<select id="user-franchise" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade disabled:bg-surface" disabled={role === "admin"} {...form.register("franchiseId")}><option value="">Sin asignar</option>{franchises.map((franchise) => <option value={franchise.id} key={franchise.id}>{franchise.name}{franchise.code ? ` (${franchise.code})` : ""}</option>)}</select></label><label className="grid gap-2 text-sm font-medium" htmlFor="user-position">Puesto<input id="user-position" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("position")} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="user-phone">Teléfono<input id="user-phone" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="tel" {...form.register("phone")} /></label></div><label className="flex min-h-11 items-center gap-3 text-sm"><input className="size-4 accent-jade" type="checkbox" {...form.register("mustChangePassword")} />Obligar cambio de contraseña en el primer ingreso</label>{Object.values(form.formState.errors).map((fieldError) => fieldError?.message ? <p className="text-sm text-alert" role="alert" key={fieldError.message}>{fieldError.message}</p> : null)}{error ? <p className="rounded-sm bg-[#FCEAE6] px-3 py-2 text-sm text-alert" role="alert">{error}</p> : null}<div className="mt-2 flex flex-wrap justify-end gap-3"><button className="h-11 rounded-sm border px-4 text-sm" type="button" onClick={onClose} disabled={isSaving}>Cancelar</button><button className="h-11 rounded-sm bg-jade px-4 text-sm font-medium text-white hover:bg-jade-deep disabled:opacity-60" type="submit" disabled={isSaving}>{isSaving ? "Guardando" : user ? "Guardar cambios" : "Crear usuario"}</button></div></form>;
+  return <form className="grid gap-4" onSubmit={form.handleSubmit(submit)}><div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-2 text-sm font-medium" htmlFor="user-full-name">Nombre completo<input id="user-full-name" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("fullName")} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="user-email">Correo electrónico<input id="user-email" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="email" autoComplete="email" {...form.register("email")} /></label></div>{!user ? <div><PasswordInput id="user-password" value={form.watch("password")} onChange={(password) => form.setValue("password", password, { shouldValidate: true })} /><button className="mt-2 inline-flex h-8 items-center gap-2 text-xs font-medium text-jade-deep hover:underline" type="button" onClick={() => form.setValue("password", generatePassword(), { shouldValidate: true })}><KeyRound className="size-3.5" aria-hidden="true" />Generar contraseña segura</button></div> : null}<div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-2 text-sm font-medium" htmlFor="user-role">Rol<select id="user-role" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("role")}><option value="empleado">Empleado</option><option value="franquiciado">Franquiciado</option>{canManageAdmins ? <option value="admin">Administrador</option> : null}</select></label><label className="grid gap-2 text-sm font-medium" htmlFor="user-franchise">Franquicia<select id="user-franchise" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade disabled:bg-surface" disabled={role === "admin"} {...form.register("franchiseId")}><option value="">Sin asignar</option>{franchises.map((franchise) => <option value={franchise.id} key={franchise.id}>{franchise.name}{franchise.code ? ` (${franchise.code})` : ""}</option>)}</select></label><label className="grid gap-2 text-sm font-medium" htmlFor="user-position">Puesto<input id="user-position" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("position")} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="user-phone">Teléfono<input id="user-phone" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="tel" {...form.register("phone")} /></label></div>{canManageAdmins && user?.role === "admin" ? <button className="flex min-h-11 items-center gap-3 border border-line px-3 text-left text-sm font-medium transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={changeCommercialAccess} disabled={isSaving || isUpdatingCommercialAccess}>{user.isSuperAdmin ? <ShieldOff className="size-4 shrink-0 text-alert" aria-hidden="true" /> : <ShieldCheck className="size-4 shrink-0 text-jade-deep" aria-hidden="true" />}{isUpdatingCommercialAccess ? "Actualizando acceso comercial" : user.isSuperAdmin ? "Revocar acceso comercial de Tiendanube" : "Conceder acceso comercial de Tiendanube"}</button> : null}<label className="flex min-h-11 items-center gap-3 text-sm"><input className="size-4 accent-jade" type="checkbox" {...form.register("mustChangePassword")} />Obligar cambio de contraseña en el primer ingreso</label>{Object.values(form.formState.errors).map((fieldError) => fieldError?.message ? <p className="text-sm text-alert" role="alert" key={fieldError.message}>{fieldError.message}</p> : null)}{error ? <p className="rounded-sm bg-[#FCEAE6] px-3 py-2 text-sm text-alert" role="alert">{error}</p> : null}<div className="mt-2 flex flex-wrap justify-end gap-3"><button className="h-11 rounded-sm border px-4 text-sm" type="button" onClick={onClose} disabled={isSaving || isUpdatingCommercialAccess}>Cancelar</button><button className="h-11 rounded-sm bg-jade px-4 text-sm font-medium text-white hover:bg-jade-deep disabled:opacity-60" type="submit" disabled={isSaving || isUpdatingCommercialAccess}>{isSaving ? "Guardando" : user ? "Guardar cambios" : "Crear usuario"}</button></div></form>;
 }
 
-export function UsersManager({ users, franchises }: { users: ManagedUser[]; franchises: Franchise[] }) {
+export function UsersManager({ users, franchises, canManageAdmins }: { users: ManagedUser[]; franchises: Franchise[]; canManageAdmins: boolean }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
@@ -116,12 +142,29 @@ export function UsersManager({ users, franchises }: { users: ManagedUser[]; fran
     return matchesQuery && (roleFilter === "all" || user.role === roleFilter) && (franchiseFilter === "all" || user.franchiseId === franchiseFilter);
   });
 
+  function canManageUser(user: ManagedUser) {
+    return canManageAdmins || (user.role !== "admin" && !user.isSuperAdmin);
+  }
+
+  function protectedAccountNotice() {
+    setNotice("Solo la superadministración puede gestionar cuentas administradoras o con acceso comercial.");
+  }
+
+  function UserForm({ franchises: formFranchises, user, onClose }: { franchises: Franchise[]; user?: ManagedUser; onClose: () => void }) {
+    return <UserFormFields franchises={formFranchises} user={user} onClose={onClose} canManageAdmins={canManageAdmins} />;
+  }
+
   function copyPassword(password: string) {
     void navigator.clipboard.writeText(password);
-    setNotice("Contraseña copiada. La persona deberá cambiarla al ingresar.");
+    setNotice("Contraseña copiada. Se cerraron las sesiones activas y la persona deberá cambiarla al ingresar.");
   }
 
   function resetPassword(user: ManagedUser) {
+    if (!canManageUser(user)) {
+      protectedAccountNotice();
+      return;
+    }
+    if (!window.confirm(`¿Restablecer la contraseña de ${user.fullName ?? user.email}? Se cerrarán sus sesiones activas.`)) return;
     const password = generatePassword();
     setNotice(null);
     startTransition(async () => {
@@ -136,11 +179,19 @@ export function UsersManager({ users, franchises }: { users: ManagedUser[]; fran
   }
 
   function setActive(user: ManagedUser, isActive: boolean) {
+    if (!canManageUser(user)) {
+      protectedAccountNotice();
+      return;
+    }
+    if (!window.confirm(isActive ? `¿Habilitar nuevamente el acceso de ${user.fullName ?? user.email}?` : `¿Revocar el acceso de ${user.fullName ?? user.email}? Se cerrarán sus sesiones activas.`)) return;
     setNotice(null);
     startTransition(async () => {
       const response = await updateUser({ ...user, fullName: user.fullName ?? user.email, franchiseId: user.franchiseId, position: user.position, phone: user.phone, isActive, mustChangePassword: user.mustChangePassword });
       if ("error" in response && response.error) setNotice(response.error);
-      else router.refresh();
+      else {
+        setNotice(isActive ? "El acceso quedó habilitado." : "El acceso fue revocado y las sesiones activas se cerraron.");
+        router.refresh();
+      }
     });
   }
 

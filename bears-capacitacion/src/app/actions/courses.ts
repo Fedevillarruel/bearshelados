@@ -7,6 +7,23 @@ import { createClient } from "@/lib/supabase/server";
 
 const identifier = z.string().uuid();
 const nullableText = z.string().trim().nullable();
+const assetTypes = ["video", "pdf", "image", "spreadsheet", "document", "text", "link"] as const;
+const uploadContentTypes = [
+  "video/mp4",
+  "video/webm",
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+  "text/csv",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+] as const;
 
 const courseSchema = z.object({
   id: identifier.optional(),
@@ -34,12 +51,13 @@ const assetSchema = z.object({
   id: identifier.optional(),
   courseId: identifier.nullable(),
   moduleId: identifier.nullable(),
-  type: z.enum(["video", "pdf", "image", "text", "link"]),
+  type: z.enum(assetTypes),
   title: z.string().trim().min(2, "El contenido necesita un título.").max(160),
   description: nullableText,
   url: z.string().trim().max(5_000),
   storagePath: nullableText,
   durationSeconds: z.number().int().min(0).max(86_400),
+  sizeBytes: z.number().int().nonnegative().max(300 * 1024 * 1024).nullable().optional(),
   orderIndex: z.number().int().min(0).max(10_000),
 }).superRefine((value, context) => {
   if ((value.courseId && value.moduleId) || (!value.courseId && !value.moduleId)) {
@@ -51,18 +69,18 @@ const assetSchema = z.object({
   if (value.type === "text" && !value.url) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["url"], message: "Ingresá el contenido de texto." });
   }
-  if (!value.storagePath && ["video", "pdf", "image", "link"].includes(value.type) && !z.string().url().safeParse(value.url).success) {
+  if (!value.storagePath && ["video", "pdf", "image", "spreadsheet", "document", "link"].includes(value.type) && !z.string().url().safeParse(value.url).success) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["url"], message: "Ingresá una URL válida para este tipo de contenido." });
   }
-  if (value.storagePath && !["video", "pdf", "image"].includes(value.type)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ["storagePath"], message: "Solo podés subir archivos para videos, PDFs e imágenes." });
+  if (value.storagePath && !["video", "pdf", "image", "spreadsheet", "document"].includes(value.type)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["storagePath"], message: "Solo podés subir archivos para videos, PDFs, imágenes, planillas y documentos." });
   }
 });
 
 const uploadUrlSchema = z.object({
   courseId: identifier,
   fileName: z.string().trim().min(1).max(240),
-  contentType: z.enum(["video/mp4", "video/webm", "application/pdf", "image/jpeg", "image/png", "image/webp"], "El tipo de archivo no está permitido."),
+  contentType: z.enum(uploadContentTypes, "El tipo de archivo no está permitido."),
   fileSize: z.number().int().positive().max(300 * 1024 * 1024, "El archivo no puede superar 300 MB.").optional(),
 });
 
@@ -228,6 +246,7 @@ export async function saveAsset(input: unknown) {
     url: storedUrl,
     storage_path: asset.storagePath,
     duration_seconds: asset.durationSeconds,
+    size_bytes: asset.sizeBytes ?? null,
     order_index: asset.orderIndex,
   };
   const request = asset.id

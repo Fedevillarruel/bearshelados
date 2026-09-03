@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CourseBuilder, type BuilderAsset, type BuilderCourse, type BuilderExam, type BuilderModule } from "@/components/admin/course-builder";
 import { PortalShell } from "@/components/portal/portal-shell";
@@ -45,5 +46,5 @@ export default async function AdminCoursePage({ params }: { params: Promise<{ co
   const employees = (employeeData ?? []).map((employee) => ({ id: employee.id, fullName: employee.full_name, email: employee.email, franchiseName: employee.franchise_id ? franchiseById.get(employee.franchise_id) ?? null : null }));
   const enrollments = (enrollmentData ?? []).map((enrollment) => ({ userId: enrollment.user_id, dueDate: enrollment.due_date, status: enrollment.status, progressPercent: Number(enrollment.progress_percent) }));
 
-  return <PortalLayout viewer={viewer} activeKey="courses"><CourseBuilder course={course} modules={modules} courseExams={exams.filter((exam) => exam.courseId === course.id)} employees={employees} enrollments={enrollments} /></PortalLayout>;
+  return <PortalLayout viewer={viewer} activeKey="courses"><div className="space-y-6"><section className="flex flex-wrap items-center justify-between gap-4 border border-line bg-surface px-5 py-4"><div><p className="font-medium">Videos, archivos y recursos</p><p className="mt-1 text-sm text-muted">Cargá contenido privado para el curso completo o para un módulo.</p></div><Link className="inline-flex h-10 items-center rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep" href={`/admin/cursos/${course.id}/contenido`}>Gestionar contenido</Link></section><CourseBuilder course={course} modules={modules} courseExams={exams.filter((exam) => exam.courseId === course.id)} employees={employees} enrollments={enrollments} /></div></PortalLayout>;
 }

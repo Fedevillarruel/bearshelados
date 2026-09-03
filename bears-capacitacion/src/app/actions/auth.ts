@@ -10,12 +10,17 @@ import { z } from "zod";
 
 export type ActionState = { error?: string; success?: string };
 
+const nullableFranchiseId = z.preprocess(
+  (value) => typeof value === "string" ? value.trim() || null : value ?? null,
+  z.string().uuid("Elegí una franquicia válida.").nullable(),
+);
+
 const managedProfileSchema = z.object({
   id: z.string().uuid(),
   email: z.string().trim().email("Ingresá un correo válido."),
   fullName: z.string().trim().min(2, "Ingresá el nombre completo."),
   role: z.enum(["admin", "franquiciado", "empleado"]),
-  franchiseId: z.string().uuid().nullable(),
+  franchiseId: nullableFranchiseId,
   position: z.string().trim().max(100).nullable(),
   phone: z.string().trim().max(30).nullable(),
   isActive: z.boolean(),
@@ -35,20 +40,25 @@ async function createManagedUser(profile: z.infer<typeof createUserSchema>) {
     user_metadata: {
       full_name: profile.fullName,
       role: profile.role,
-      franchise_id: profile.franchiseId ?? "",
+      franchise_id: profile.franchiseId,
     },
   });
   if (error || !result.user) return { error: error?.message ?? "No se pudo crear el usuario." };
 
-  const { error: profileError } = await admin.from("profiles").update({
+  const { error: profileError } = await admin.from("profiles").upsert({
+    id: result.user.id,
+    email: profile.email,
     full_name: profile.fullName,
     role: profile.role,
     franchise_id: profile.franchiseId,
     position: profile.position,
     phone: profile.phone,
     must_change_password: profile.mustChangePassword,
-  }).eq("id", result.user.id);
-  if (profileError) return { error: "El usuario fue creado, pero no se pudo completar su perfil." };
+  }, { onConflict: "id" });
+  if (profileError) {
+    await admin.auth.admin.deleteUser(result.user.id);
+    return { error: "No pudimos completar el perfil del usuario." };
+  }
 
   return { data: { id: result.user.id } };
 }
@@ -112,9 +122,10 @@ export async function requestPasswordReset(_: ActionState, formData: FormData): 
 }
 
 export async function createUser(input: unknown) {
-  await requireRole(["admin"]);
+  const viewer = await requireRole(["admin"]);
   const parsed = createUserSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
+  if (!viewer.isSuperAdmin && parsed.data.role === "admin") return { error: "Solo la superadministración puede crear cuentas administradoras." };
 
   return createManagedUser(parsed.data);
 }
@@ -127,10 +138,12 @@ export async function updateUser(input: unknown) {
   if (viewer.id === profile.id && !profile.isActive) return { error: "No podés desactivar tu propia cuenta." };
 
   const admin = createAdminClient();
-  const { data: existingProfile } = await admin.from("profiles").select("is_super_admin").eq("id", profile.id).maybeSingle();
+  const { data: existingProfile } = await admin.from("profiles").select("role, is_super_admin").eq("id", profile.id).maybeSingle();
   if (!existingProfile) return { error: "El perfil seleccionado no existe." };
   if (existingProfile.is_super_admin && !viewer.isSuperAdmin) return { error: "No tenés permiso para modificar una cuenta con acceso comercial." };
+  if (!viewer.isSuperAdmin && (existingProfile.role === "admin" || profile.role === "admin")) return { error: "Solo la superadministración puede administrar cuentas administradoras." };
   if (existingProfile.is_super_admin && profile.role !== "admin") return { error: "Primero revocá el acceso comercial antes de cambiar el rol de esta cuenta." };
+  if (viewer.id === profile.id && profile.role !== "admin") return { error: "No podés quitarte tu propio rol administrador." };
 
   const { error: authError } = await admin.auth.admin.updateUserById(profile.id, {
     email: profile.email,
@@ -150,6 +163,7 @@ export async function updateUser(input: unknown) {
   }).eq("id", profile.id);
 
   if (profileError) return { error: "No pudimos actualizar el perfil." };
+  if (!profile.isActive) await admin.auth.admin.signOut(profile.id, "global");
   return { data: { id: profile.id } };
 }
 
@@ -159,20 +173,51 @@ export async function resetUserPassword(input: unknown) {
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
 
   const admin = createAdminClient();
-  const { data: existingProfile } = await admin.from("profiles").select("is_super_admin").eq("id", parsed.data.userId).maybeSingle();
+  const { data: existingProfile } = await admin.from("profiles").select("role, is_super_admin").eq("id", parsed.data.userId).maybeSingle();
   if (!existingProfile) return { error: "El perfil seleccionado no existe." };
   if (existingProfile.is_super_admin && !viewer.isSuperAdmin) return { error: "No tenés permiso para restablecer una cuenta con acceso comercial." };
+  if (!viewer.isSuperAdmin && existingProfile.role === "admin") return { error: "Solo la superadministración puede restablecer cuentas administradoras." };
 
   const { error } = await admin.auth.admin.updateUserById(parsed.data.userId, { password: parsed.data.password });
   if (error) return { error: "No pudimos restablecer la contraseña." };
 
   const { error: profileError } = await admin.from("profiles").update({ must_change_password: true }).eq("id", parsed.data.userId);
   if (profileError) return { error: "La contraseña cambió, pero no pudimos activar el cambio obligatorio." };
+  await admin.auth.admin.signOut(parsed.data.userId, "global");
+  return { data: { id: parsed.data.userId } };
+}
+
+export async function setUserCommercialAccess(input: unknown) {
+  const viewer = await requireRole(["admin"]);
+  if (!viewer.isSuperAdmin) return { error: "Solo la superadministración puede cambiar el acceso comercial." };
+
+  const parsed = z.object({ userId: z.string().uuid(), isSuperAdmin: z.boolean() }).safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message };
+  if (viewer.id === parsed.data.userId && !parsed.data.isSuperAdmin) return { error: "No podés revocar tu propio acceso comercial." };
+
+  const admin = createAdminClient();
+  const { data: existingProfile } = await admin
+    .from("profiles")
+    .select("role, is_active, is_super_admin")
+    .eq("id", parsed.data.userId)
+    .maybeSingle();
+  if (!existingProfile) return { error: "El perfil seleccionado no existe." };
+  if (parsed.data.isSuperAdmin && (existingProfile.role !== "admin" || !existingProfile.is_active)) {
+    return { error: "El acceso comercial sólo puede asignarse a una cuenta administradora activa." };
+  }
+  if (existingProfile.is_super_admin === parsed.data.isSuperAdmin) return { data: { id: parsed.data.userId } };
+
+  const { error } = await admin
+    .from("profiles")
+    .update({ is_super_admin: parsed.data.isSuperAdmin })
+    .eq("id", parsed.data.userId);
+  if (error) return { error: "No pudimos actualizar el acceso comercial." };
+  if (!parsed.data.isSuperAdmin) await admin.auth.admin.signOut(parsed.data.userId, "global");
   return { data: { id: parsed.data.userId } };
 }
 
 export async function createUsersFromCsv(input: unknown) {
-  await requireRole(["admin"]);
+  const viewer = await requireRole(["admin"]);
   const rows = z.array(z.unknown()).max(500, "El archivo puede tener hasta 500 filas.").safeParse(input);
   if (!rows.success) return { error: rows.error.issues[0]?.message };
 
@@ -182,6 +227,10 @@ export async function createUsersFromCsv(input: unknown) {
     const email = typeof (row as { email?: unknown })?.email === "string" ? (row as { email: string }).email : "sin correo";
     if (!parsed.success) {
       results.push({ row: index + 1, email, error: parsed.error.issues[0]?.message });
+      continue;
+    }
+    if (!viewer.isSuperAdmin && parsed.data.role === "admin") {
+      results.push({ row: index + 1, email: parsed.data.email, error: "Solo la superadministración puede crear cuentas administradoras." });
       continue;
     }
     const result = await createManagedUser(parsed.data);

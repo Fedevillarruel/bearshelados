@@ -42,7 +42,21 @@ select gen_random_uuid(), id, jsonb_build_object('sub', id::text, 'email', email
 from auth.users where id::text like 'b1000000-%'
 on conflict (provider, provider_id) do nothing;
 
-update public.profiles set position = case id
+update public.profiles set
+  role = case id
+    when 'b1000000-0000-0000-0000-000000000001' then 'franquiciado'::public.app_role
+    when 'b1000000-0000-0000-0000-000000000002' then 'franquiciado'::public.app_role
+    else 'empleado'::public.app_role
+  end,
+  franchise_id = case id
+    when 'b1000000-0000-0000-0000-000000000001' then 'a1000000-0000-0000-0000-000000000001'::uuid
+    when 'b1000000-0000-0000-0000-000000000002' then 'a1000000-0000-0000-0000-000000000002'::uuid
+    when 'b1000000-0000-0000-0000-000000000011' then 'a1000000-0000-0000-0000-000000000001'::uuid
+    when 'b1000000-0000-0000-0000-000000000012' then 'a1000000-0000-0000-0000-000000000001'::uuid
+    when 'b1000000-0000-0000-0000-000000000013' then 'a1000000-0000-0000-0000-000000000002'::uuid
+    when 'b1000000-0000-0000-0000-000000000014' then 'a1000000-0000-0000-0000-000000000002'::uuid
+  end,
+  position = case id
   when 'b1000000-0000-0000-0000-000000000011' then 'Encargada de salón'
   when 'b1000000-0000-0000-0000-000000000012' then 'Atención al cliente'
   when 'b1000000-0000-0000-0000-000000000013' then 'Cajera'
