@@ -39,7 +39,7 @@ export async function middleware(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role, is_active")
+    .select("role, is_active, must_change_password, is_super_admin")
     .eq("id", user.id)
     .single();
 
@@ -49,8 +49,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (profile.must_change_password && pathname !== "/cambiar-contrasena" && pathname !== "/auth/callback") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/cambiar-contrasena";
+    return NextResponse.redirect(url);
+  }
+
   const invalidRoute =
     (pathname.startsWith("/admin") && profile.role !== "admin") ||
+    (pathname.startsWith("/admin/tiendanube") && !profile.is_super_admin) ||
     (pathname.startsWith("/franquicia") && profile.role !== "franquiciado") ||
     (pathname.startsWith("/cursos") && profile.role !== "empleado");
 

@@ -1,4 +1,26 @@
 -- Demo data. Run after 001 through 006. URLs are placeholders and must be replaced with Bears material.
+-- This script can repair a schema-only installation after setup-completo.sql failed during seeding.
+do $$
+begin
+  if to_regclass('public.profiles') is null then
+    raise exception 'El esquema base no está instalado. Ejecutá primero supabase/setup-completo.sql en un proyecto vacío o aplicá las migraciones 001 a 006.';
+  end if;
+end;
+$$;
+
+begin;
+
+insert into public.profiles (id, email, full_name, role, is_active, must_change_password)
+select id, email, 'Administrador Bears', 'admin'::public.app_role, true, true
+from auth.users
+where email = 'admin@bears-helados.com'
+on conflict (id) do update set
+  email = excluded.email,
+  full_name = excluded.full_name,
+  role = excluded.role,
+  is_active = excluded.is_active,
+  must_change_password = excluded.must_change_password;
+
 insert into public.franchises (id, name, code, city) values
   ('a1000000-0000-0000-0000-000000000001', 'Bears Palermo', 'PAL', 'Buenos Aires'),
   ('a1000000-0000-0000-0000-000000000002', 'Bears Belgrano', 'BEL', 'Buenos Aires')
@@ -83,16 +105,16 @@ insert into public.enrollments (user_id, course_id, due_date, status, progress_p
 ('b1000000-0000-0000-0000-000000000011','c1000000-0000-0000-0000-000000000002',current_date + 30,'asignado',0,null,null)
 on conflict (user_id, course_id) do update set progress_percent = excluded.progress_percent, status = excluded.status;
 
-insert into public.exams (id, module_id, title, passing_score, max_attempts, cooldown_minutes, shuffle_questions, shuffle_options, show_correct_answers, blocks_progress) values
-('e1000000-0000-0000-0000-000000000003','d1000000-0000-0000-0000-000000000003','Valores Bears',70,3,60,true,true,false,true),
-('e1000000-0000-0000-0000-000000000004','d1000000-0000-0000-0000-000000000004','Control de calidad',70,3,60,true,true,false,true),
-('e1000000-0000-0000-0000-000000000005','d1000000-0000-0000-0000-000000000005','Experiencia Bears',70,3,60,true,true,false,true),
-('e1000000-0000-0000-0000-000000000006','d1000000-0000-0000-0000-000000000006','Tipos de visitas',70,3,60,true,true,false,true),
-('e1000000-0000-0000-0000-000000000007','d1000000-0000-0000-0000-000000000007','Uniforme e higiene',70,3,60,true,true,false,true),
-('e1000000-0000-0000-0000-000000000008','d1000000-0000-0000-0000-000000000008','Vestuario Bears',70,3,60,true,true,false,true),
-('e1000000-0000-0000-0000-000000000009','d1000000-0000-0000-0000-000000000009','Manejo de stock',70,3,60,true,true,false,true),
-('e1000000-0000-0000-0000-000000000010','c1000000-0000-0000-0000-000000000001','Evaluación final — Inducción Bears',80,2,0,true,true,true,true),
-('e2000000-0000-0000-0000-000000000001','c1000000-0000-0000-0000-000000000002','Evaluación - Caja y arqueo',70,3,30,true,true,false,true)
+insert into public.exams (id, course_id, module_id, title, passing_score, max_attempts, cooldown_minutes, shuffle_questions, shuffle_options, show_correct_answers, blocks_progress) values
+('e1000000-0000-0000-0000-000000000003',null,'d1000000-0000-0000-0000-000000000003','Valores Bears',70,3,60,true,true,false,true),
+('e1000000-0000-0000-0000-000000000004',null,'d1000000-0000-0000-0000-000000000004','Control de calidad',70,3,60,true,true,false,true),
+('e1000000-0000-0000-0000-000000000005',null,'d1000000-0000-0000-0000-000000000005','Experiencia Bears',70,3,60,true,true,false,true),
+('e1000000-0000-0000-0000-000000000006',null,'d1000000-0000-0000-0000-000000000006','Tipos de visitas',70,3,60,true,true,false,true),
+('e1000000-0000-0000-0000-000000000007',null,'d1000000-0000-0000-0000-000000000007','Uniforme e higiene',70,3,60,true,true,false,true),
+('e1000000-0000-0000-0000-000000000008',null,'d1000000-0000-0000-0000-000000000008','Vestuario Bears',70,3,60,true,true,false,true),
+('e1000000-0000-0000-0000-000000000009',null,'d1000000-0000-0000-0000-000000000009','Manejo de stock',70,3,60,true,true,false,true),
+('e1000000-0000-0000-0000-000000000010','c1000000-0000-0000-0000-000000000001',null,'Evaluación final — Inducción Bears',80,2,0,true,true,true,true),
+('e2000000-0000-0000-0000-000000000001','c1000000-0000-0000-0000-000000000002',null,'Evaluación - Caja y arqueo',70,3,30,true,true,false,true)
 on conflict (id) do update set title = excluded.title;
 
 update public.exams set time_limit_minutes = 20 where id = 'e1000000-0000-0000-0000-000000000010';
@@ -178,3 +200,6 @@ on conflict (id) do nothing;
 insert into public.manuals (title, description, category_id, file_url, file_type) values
 ('Manual de operaciones del local','Versión vigente para apertura, atención y cierre.','f1000000-0000-0000-0000-000000000001','manuales/operaciones.pdf','application/pdf'),
 ('Estándares de calidad y servicio','Puntos de control del turno.','f1000000-0000-0000-0000-000000000002','manuales/calidad.pdf','application/pdf');
+
+select pg_notify('pgrst', 'reload schema');
+commit;

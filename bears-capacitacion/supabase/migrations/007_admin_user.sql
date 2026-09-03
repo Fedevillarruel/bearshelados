@@ -14,18 +14,27 @@ begin
     'admin@bears-helados.com', crypt('Bears_2026_platform', gen_salt('bf')), now(),
     '{"provider":"email","providers":["email"]}'::jsonb,
     '{"full_name":"Administrador Bears","role":"admin"}'::jsonb, now(), now()
-  ) on conflict (id) do nothing;
+  ) on conflict do nothing;
 
   insert into auth.identities (
     id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
-  ) values (
-    gen_random_uuid(), admin_id,
-    jsonb_build_object('sub', admin_id::text, 'email', 'admin@bears-helados.com'),
-    'email', 'admin@bears-helados.com', now(), now(), now()
-  ) on conflict (provider, provider_id) do nothing;
+  ) select
+    gen_random_uuid(), id,
+    jsonb_build_object('sub', id::text, 'email', email),
+    'email', email, now(), now(), now()
+  from auth.users
+  where id = admin_id
+  on conflict (provider, provider_id) do nothing;
 
-  update public.profiles
-    set role = 'admin', full_name = 'Administrador Bears', is_active = true, must_change_password = true
-  where id = admin_id or email = 'admin@bears-helados.com';
+  insert into public.profiles (id, email, full_name, role, is_active, must_change_password)
+  select id, email, 'Administrador Bears', 'admin'::public.app_role, true, true
+  from auth.users
+  where email = 'admin@bears-helados.com'
+  on conflict (id) do update set
+    email = excluded.email,
+    full_name = excluded.full_name,
+    role = excluded.role,
+    is_active = excluded.is_active,
+    must_change_password = excluded.must_change_password;
 end;
 $$;

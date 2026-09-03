@@ -1,31 +1,46 @@
 # Bears Helados | Capacitación
 
-Plataforma interna de cursos e inducción para administración, franquicias y personal de locales.
+Plataforma interna de cursos, manuales y seguimiento operativo para administración, franquicias y equipos de Bears Helados.
 
 ## Requisitos
 
 - Node.js 20 o superior
-- Un proyecto de Supabase
-- Una cuenta de Vercel para producción
+- Proyecto de Supabase
+- Cuenta de Vercel para producción
 
 ## Desarrollo local
 
-1. Instalá las dependencias con `npm install`.
-2. Copiá `.env.example` a `.env.local` y completá las tres variables.
-3. Ejecutá las migraciones en Supabase SQL Editor, exactamente en este orden:
+1. Instalá dependencias con `npm install`.
+2. Copiá `.env.example` a `.env.local` y completá las variables necesarias.
+3. Aplicá la base de datos siguiendo uno de los flujos siguientes.
+4. Ejecutá `npm run dev`.
+
+### Proyecto Supabase vacío
+
+Ejecutá una sola vez `supabase/setup-completo.sql` en el SQL Editor. El archivo instala el esquema, RLS, buckets privados, automatizaciones, datos iniciales y la base de Tiendanube en una transacción.
+
+### Proyecto remoto parcial existente
+
+No ejecutes nuevamente `supabase/setup-completo.sql`. Ejecutá una vez `supabase/seed.sql`, verificá que `profiles` se vea mediante PostgREST y luego aplicá, en orden:
 
 ```text
-001_init.sql
-002_exams.sql
-003_manuals.sql
-004_rls.sql
-005_storage.sql
-006_platform_automation.sql
-007_admin_user.sql (solo para la vía SQL de administrador)
+supabase/migrations/009_tiendanube_foundation.sql
+supabase/migrations/010_tiendanube_workers.sql
 ```
 
-4. Ejecutá `supabase/seed.sql` para cargar franquicias, cursos y datos demo.
-5. Iniciá la aplicación con `npm run dev`.
+Si `supabase/seed.sql` informa que `public.profiles` no existe, la instalación anterior se revirtió antes de crear el esquema base. Comprobá que las tablas estén ausentes con:
+
+```sql
+select
+	to_regclass('public.profiles') as profiles,
+	to_regclass('public.franchises') as franchises,
+	to_regclass('public.courses') as courses,
+	to_regclass('public.exams') as exams;
+```
+
+Cuando las cuatro columnas devuelvan `null`, el proyecto está vacío a efectos de la aplicación: ejecutá la versión actual de `supabase/setup-completo.sql` una sola vez. El instalador ahora reutiliza de forma segura un administrador existente en Supabase Auth y crea su perfil activo.
+
+Las migraciones `001` a `008` son el historial para instalaciones incrementales anteriores. En un entorno existente que todavía no las tenga, aplicalas primero en orden numérico; `007_admin_user.sql` es sólo la alternativa SQL para crear el administrador inicial.
 
 ## Variables de entorno
 
@@ -33,53 +48,65 @@ Plataforma interna de cursos e inducción para administración, franquicias y pe
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SITE_URL=https://your-production-domain.example
+TIENDANUBE_CLIENT_ID=
+TIENDANUBE_CLIENT_SECRET=
+TIENDANUBE_APP_USER_AGENT=Bears Helados Capacitación (soporte@bears-helados.com)
+TIENDANUBE_TOKEN_ENCRYPTION_KEY=
+CRON_SECRET=
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` se utiliza exclusivamente desde código server-side para crear usuarios y para operaciones administrativas controladas. No debe declararse con prefijo `NEXT_PUBLIC_` ni exponerse al navegador.
+`SUPABASE_SERVICE_ROLE_KEY`, `TIENDANUBE_CLIENT_SECRET`, `TIENDANUBE_TOKEN_ENCRYPTION_KEY` y `CRON_SECRET` son exclusivamente server-side. Nunca deben llevar el prefijo `NEXT_PUBLIC_`, entrar a props, logs, tablas de navegador o URLs. Generá valores nuevos, por ejemplo:
 
-## Usuario administrador inicial
-
-### Vía A: Supabase Dashboard (recomendada)
-
-1. Abrí **Authentication > Users > Add user**.
-2. Creá `admin@bears-helados.com` con contraseña `Bears_2026_platform`.
-3. Marcá **Auto Confirm User**.
-4. Ejecutá:
-
-```sql
-update public.profiles
-set role = 'admin', full_name = 'Administrador Bears', is_active = true, must_change_password = true
-where email = 'admin@bears-helados.com';
+```bash
+openssl rand -base64 32  # TIENDANUBE_TOKEN_ENCRYPTION_KEY
+openssl rand -base64 48  # CRON_SECRET
 ```
 
-### Vía B: SQL
+`SITE_URL` debe ser el origen canónico sin ruta. En desarrollo admite `http://localhost:3000`; en producción requiere HTTPS.
 
-Ejecutá `007_admin_user.sql`. Este enfoque inserta en las tablas internas de `auth` y puede requerir ajustes si Supabase cambia su esquema de Auth. En ambas vías, el perfil queda marcado para cambiar la contraseña en el primer acceso.
+## Storage y acceso
 
-## Buckets de Storage
+- `course-media` y `manuals` son privados y se entregan con URLs firmadas de corta duración.
+- `avatars` es público y está organizado por ID de usuario.
+- Todas las tablas tienen RLS. Las Server Actions vuelven a validar roles en el servidor.
+- El endpoint de video comprueba sesión y permiso sobre el activo antes de registrar rangos vistos.
+- Las opciones de exámenes se califican del lado del servidor.
 
-La migración `005_storage.sql` crea:
+## Tiendanube
 
-- `course-media`: público, para video, PDF e imágenes de cursos.
-- `manuals`: privado, servido únicamente mediante signed URLs de corta duración.
-- `avatars`: público, organizado por el ID de usuario.
+La integración es una capacidad exclusiva de superadministración. Solicita exactamente los scopes `read_orders` y `read_products`; no solicita acceso a clientes ni permisos de escritura.
 
-No se deben publicar manuales ni usar una URL pública para sus descargas.
+En la configuración de la aplicación de Tiendanube, usá estas URLs con el dominio de `SITE_URL`:
 
-## Seguridad
+```text
+URL de redirección: /api/tiendanube/callback
+Panel de administración: /admin/tiendanube
+Webhook comercial: /api/tiendanube/webhooks
+Webhook Store Redact: /api/tiendanube/webhooks
+Webhook Customer Redact: /api/tiendanube/webhooks
+Webhook Customers Data Request: /api/tiendanube/webhooks
+```
 
-- Todas las tablas tienen RLS activado.
-- El franquiciado solo puede leer filas asociadas a su `franchise_id`.
-- Las opciones de examen no tienen policy de lectura para empleados; el servidor corrige usando credenciales protegidas.
-- El endpoint de video requiere sesión, permiso sobre el activo y acumula rangos vistos únicos.
-- Las Server Actions vuelven a comprobar el rol incluso cuando la interfaz no ofrece la acción.
+La pantalla `/admin/tiendanube` inicia el flujo OAuth. El token recibido se cifra con AES-256-GCM y se guarda en una tabla sin acceso de navegador. Los webhooks verifican `x-linkedstore-hmac-sha256` contra el cuerpo crudo, conservan sólo metadatos operativos y se procesan en una cola.
 
-## Producción en Vercel
+`vercel.json` ejecuta `/api/cron/tiendanube` cada quince minutos. Vercel envía `Authorization: Bearer $CRON_SECRET` cuando esa variable está configurada. El plan de Vercel debe admitir esa frecuencia; de lo contrario, configurá un scheduler externo autenticado contra la misma ruta con una frecuencia equivalente.
 
-1. Importá el repositorio en Vercel.
-2. Agregá las tres variables de entorno para Production, Preview y Development según corresponda.
-3. Verificá que la URL de producción esté incluida en **Authentication > URL Configuration** de Supabase.
-4. Desplegá. No se requiere `vercel.json` para este proyecto.
+## Producción
+
+1. Configurá todas las variables de entorno necesarias en Vercel para cada ambiente.
+2. En Supabase Auth, agregá las URLs permitidas:
+
+```text
+https://bearshelados.vercel.app
+https://bearshelados.vercel.app/auth/callback
+http://localhost:3000
+http://localhost:3000/auth/callback
+```
+
+3. Ajustá el dominio real en `SITE_URL` y en las URLs registradas de Tiendanube.
+4. Aplicá las migraciones correctas para el estado del proyecto antes de desplegar.
+5. Probá login, rotación obligatoria de contraseña, roles y una autorización OAuth real antes de habilitar reportes comerciales.
 
 ## Verificación
 
@@ -87,39 +114,4 @@ No se deben publicar manuales ni usar una URL pública para sus descargas.
 npm run build
 ```
 
-La demo visual está disponible sin configuración de Supabase en `/admin/dashboard`. Para habilitar datos reales, login y persistencia, completá `.env.local` y aplicá las migraciones.This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+La ruta `/demo` es la vista no persistente disponible sin Supabase. Los flujos de usuarios, cursos, manuales, reportes y Tiendanube requieren una configuración válida de Supabase.

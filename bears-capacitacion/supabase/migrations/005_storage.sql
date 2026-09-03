@@ -1,8 +1,8 @@
 insert into storage.buckets (id, name, public)
-values ('course-media', 'course-media', true), ('manuals', 'manuals', false), ('avatars', 'avatars', true)
-on conflict (id) do nothing;
+values ('course-media', 'course-media', false), ('manuals', 'manuals', false), ('avatars', 'avatars', true)
+on conflict (id) do update set public = excluded.public;
 
-create policy "public reads course media" on storage.objects for select using (bucket_id = 'course-media');
+drop policy if exists "public reads course media" on storage.objects;
 create policy "admin inserts course media" on storage.objects for insert with check (bucket_id = 'course-media' and public.is_admin());
 create policy "admin updates course media" on storage.objects for update using (bucket_id = 'course-media' and public.is_admin());
 create policy "admin deletes course media" on storage.objects for delete using (bucket_id = 'course-media' and public.is_admin());

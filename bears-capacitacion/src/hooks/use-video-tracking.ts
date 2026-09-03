@@ -47,6 +47,7 @@ export function useVideoTracking({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            event: "progress",
             assetId,
             lastPosition: Math.floor(video.currentTime),
             watchedRanges: rangesRef.current,
@@ -58,9 +59,18 @@ export function useVideoTracking({
       }
     };
 
+    const startTracking = () => {
+      void fetch("/api/video-progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: "start", assetId }),
+      });
+    };
+
     const onPlay = () => {
       playingRef.current = true;
       lastObservedRef.current = video.currentTime;
+      startTracking();
     };
     const onPause = () => {
       recordProgress();

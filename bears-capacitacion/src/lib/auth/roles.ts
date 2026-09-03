@@ -10,6 +10,7 @@ export type Viewer = {
   role: AppRole;
   franchiseId: string | null;
   mustChangePassword: boolean;
+  isSuperAdmin: boolean;
 };
 
 export async function getViewer(): Promise<Viewer | null> {
@@ -24,11 +25,11 @@ export async function getViewer(): Promise<Viewer | null> {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, email, full_name, role, franchise_id, must_change_password")
+    .select("id, email, full_name, role, franchise_id, is_active, must_change_password, is_super_admin")
     .eq("id", user.id)
     .single();
 
-  if (!profile || !profile.role) return null;
+  if (!profile || !profile.role || !profile.is_active) return null;
 
   return {
     id: profile.id,
@@ -37,6 +38,7 @@ export async function getViewer(): Promise<Viewer | null> {
     role: profile.role as AppRole,
     franchiseId: profile.franchise_id,
     mustChangePassword: profile.must_change_password ?? false,
+    isSuperAdmin: profile.is_super_admin ?? false,
   };
 }
 
@@ -46,6 +48,12 @@ export async function requireRole(allowedRoles: AppRole[]) {
   if (!viewer) redirect("/login");
   if (!allowedRoles.includes(viewer.role)) redirect(defaultRouteForRole(viewer.role));
 
+  return viewer;
+}
+
+export async function requireSuperAdmin() {
+  const viewer = await requireRole(["admin"]);
+  if (!viewer.isSuperAdmin) redirect("/admin/dashboard");
   return viewer;
 }
 
