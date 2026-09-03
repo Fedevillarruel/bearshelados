@@ -23,6 +23,6 @@ begin
 end;
 $$;
 
-create trigger assets_clear_previous_primary_module_video
+create trigger assets_clear_previous_primary_module_videoç
   before insert or update of is_primary, module_id on public.assets
   for each row execute function public.clear_previous_primary_module_video();

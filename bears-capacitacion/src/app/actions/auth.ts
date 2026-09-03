@@ -6,17 +6,18 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getConfiguredSiteUrl } from "@/lib/site-url";
 import { createUserSchema, signInSchema } from "@/lib/validations/auth";
+import { databaseUuid } from "@/lib/validations/ids";
 import { z } from "zod";
 
 export type ActionState = { error?: string; success?: string };
 
 const nullableFranchiseId = z.preprocess(
   (value) => typeof value === "string" ? value.trim() || null : value ?? null,
-  z.string().uuid("Elegí una franquicia válida.").nullable(),
+  databaseUuid.nullable(),
 );
 
 const managedProfileSchema = z.object({
-  id: z.string().uuid(),
+  id: databaseUuid,
   email: z.string().trim().email("Ingresá un correo válido."),
   fullName: z.string().trim().min(2, "Ingresá el nombre completo."),
   role: z.enum(["admin", "franquiciado", "empleado"]),
@@ -167,7 +168,7 @@ export async function updateUser(input: unknown) {
 
 export async function resetUserPassword(input: unknown) {
   const viewer = await requireRole(["admin"]);
-  const parsed = z.object({ userId: z.string().uuid(), password: z.string().min(12, "La contraseña debe tener al menos 12 caracteres.") }).safeParse(input);
+  const parsed = z.object({ userId: databaseUuid, password: z.string().min(12, "La contraseña debe tener al menos 12 caracteres.") }).safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
 
   const admin = createAdminClient();
@@ -189,7 +190,7 @@ export async function setUserCommercialAccess(input: unknown) {
   const viewer = await requireRole(["admin"]);
   if (!viewer.isSuperAdmin) return { error: "Solo la superadministración puede cambiar el acceso comercial." };
 
-  const parsed = z.object({ userId: z.string().uuid(), isSuperAdmin: z.boolean() }).safeParse(input);
+  const parsed = z.object({ userId: databaseUuid, isSuperAdmin: z.boolean() }).safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
   if (viewer.id === parsed.data.userId && !parsed.data.isSuperAdmin) return { error: "No podés revocar tu propio acceso comercial." };
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { getViewer } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
+import { databaseUuid } from "@/lib/validations/ids";
 
 function json(body: Record<string, string>, status: number) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -14,7 +14,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ manualId: 
   }
 
   const { manualId } = await params;
-  if (!z.string().uuid().safeParse(manualId).success) return json({ error: "El manual seleccionado no es válido." }, 400);
+  if (!databaseUuid.safeParse(manualId).success) return json({ error: "El manual seleccionado no es válido." }, 400);
 
   const supabase = await createClient();
   const { data: manual } = await supabase.from("manuals")

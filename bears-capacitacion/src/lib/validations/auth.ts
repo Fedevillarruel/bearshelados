@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { databaseUuid } from "@/lib/validations/ids";
 
 const nullableFranchiseId = z.preprocess(
   (value) => typeof value === "string" ? value.trim() || null : value ?? null,
-  z.string().uuid("Elegí una franquicia válida.").nullable(),
+  databaseUuid.nullable(),
 );
 
 export const signInSchema = z.object({

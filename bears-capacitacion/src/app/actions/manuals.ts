@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
+import { databaseUuid } from "@/lib/validations/ids";
 
-const identifier = z.string().uuid();
+const identifier = databaseUuid;
 const manualRoles = z.enum(["admin", "franquiciado"]);
 const supportedFileTypes = z.enum([
   "application/pdf",

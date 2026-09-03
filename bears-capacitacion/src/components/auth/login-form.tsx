@@ -1,8 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import Link from "next/link";
-import { ArrowRight, Eye, EyeOff, LoaderCircle } from "lucide-react";
+import { Eye, EyeOff, LoaderCircle } from "lucide-react";
 import { signIn, type ActionState } from "@/app/actions/auth";
 
 const initialState: ActionState = {};
@@ -57,9 +56,6 @@ export function LoginForm({ isConfigured }: { isConfigured: boolean }) {
         {isPending ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : null}
         {isPending ? "Ingresando" : "Continuar"}
       </button>
-      <Link className="flex h-11 items-center justify-center gap-2 rounded-sm border text-sm font-medium transition-colors hover:bg-surface" href="/demo">
-        Explorar datos de demostración <ArrowRight className="size-4" aria-hidden="true" />
-      </Link>
     </form>
   );
 }

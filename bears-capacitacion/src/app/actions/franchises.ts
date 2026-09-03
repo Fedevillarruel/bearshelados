@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
+import { databaseUuid } from "@/lib/validations/ids";
 
 const franchiseSchema = z.object({
-  id: z.string().uuid().optional(),
+  id: databaseUuid.optional(),
   name: z.string().trim().min(2, "El nombre debe tener al menos 2 caracteres.").max(120),
   code: z.string().trim().toUpperCase().max(24).nullable(),
   city: z.string().trim().max(120).nullable(),
@@ -44,7 +45,7 @@ export async function saveFranchise(input: unknown) {
 
 export async function deleteFranchise(franchiseId: string) {
   await requireRole(["admin"]);
-  const parsed = z.string().uuid().safeParse(franchiseId);
+  const parsed = databaseUuid.safeParse(franchiseId);
   if (!parsed.success) return { error: "La franquicia seleccionada no es válida." };
   const supabase = await createClient();
   const { count, error: countError } = await supabase.from("profiles").select("id", { count: "exact", head: true }).eq("franchise_id", parsed.data);

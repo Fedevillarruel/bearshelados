@@ -3,8 +3,9 @@ import { z } from "zod";
 import { mergeRanges, watchedSeconds } from "@/lib/video-ranges";
 import { getViewer } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
+import { databaseUuid } from "@/lib/validations/ids";
 
-const assetIdSchema = z.object({ assetId: z.string().uuid() });
+const assetIdSchema = z.object({ assetId: databaseUuid });
 const progressSchema = assetIdSchema.extend({
   event: z.literal("progress"),
   lastPosition: z.number().int().nonnegative(),

@@ -3,11 +3,12 @@
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { databaseUuid } from "@/lib/validations/ids";
 
 const submissionSchema = z.object({
-  attemptId: z.string().uuid(),
-  examId: z.string().uuid(),
-  answers: z.array(z.object({ questionId: z.string().uuid(), optionId: z.string().uuid().nullable() })),
+  attemptId: databaseUuid,
+  examId: databaseUuid,
+  answers: z.array(z.object({ questionId: databaseUuid, optionId: databaseUuid.nullable() })),
 });
 
 export type ExamSubmissionResult = {
@@ -53,7 +54,7 @@ async function getEnrolledExam(examId: string, userId: string) {
 }
 
 export async function startExam(examId: string) {
-  const parsedExamId = z.string().uuid().safeParse(examId);
+  const parsedExamId = databaseUuid.safeParse(examId);
   if (!parsedExamId.success) return { error: "El examen seleccionado no es válido." };
 
   const viewer = await requireRole(["empleado"]);
