@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/roles";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { databaseUuid } from "@/lib/validations/ids";
 
@@ -47,11 +48,23 @@ export async function deleteFranchise(franchiseId: string) {
   await requireRole(["admin"]);
   const parsed = databaseUuid.safeParse(franchiseId);
   if (!parsed.success) return { error: "La franquicia seleccionada no es válida." };
-  const supabase = await createClient();
-  const { count, error: countError } = await supabase.from("profiles").select("id", { count: "exact", head: true }).eq("franchise_id", parsed.data);
-  if (countError) return { error: "No pudimos comprobar las cuentas asignadas." };
-  if (count && count > 0) return { error: "No podés eliminar una franquicia con usuarios asignados. Desasignalos o desactivá la franquicia." };
-  const { error } = await supabase.from("franchises").delete().eq("id", parsed.data);
+  const admin = createAdminClient();
+  const { data: franchiseManagers, error: managerError } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("franchise_id", parsed.data)
+    .eq("role", "franquiciado")
+    .limit(1);
+  if (managerError) return { error: "No pudimos comprobar los responsables de la franquicia." };
+  if (franchiseManagers?.length) return { error: "Primero reasigná o eliminá la cuenta franquiciada responsable antes de eliminar esta franquicia." };
+
+  const { error: mappingsError } = await admin
+    .from("tiendanube_sku_branch_mappings")
+    .delete()
+    .eq("franchise_id", parsed.data);
+  if (mappingsError && mappingsError.code !== "42P01") return { error: "No pudimos eliminar las asignaciones comerciales de la franquicia." };
+
+  const { error } = await admin.from("franchises").delete().eq("id", parsed.data);
   if (error) return { error: "No pudimos eliminar la franquicia." };
   refreshFranchisePaths();
   return { data: { id: parsed.data } };

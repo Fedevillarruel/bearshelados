@@ -12,7 +12,7 @@ type CourseModulePageProps = {
 export default async function CourseModulePage({ params }: CourseModulePageProps) {
 	if (!isSupabaseConfigured()) return <CoursePlayer />;
 
-	const viewer = await requireRole(["empleado"]);
+	const viewer = await requireRole(["empleado", "franquiciado"]);
 	const { slug, moduleId } = await params;
 	const data = await getEmployeeCourseModule(viewer, slug, moduleId);
 	if (!data) notFound();

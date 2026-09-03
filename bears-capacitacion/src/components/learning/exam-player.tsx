@@ -17,7 +17,12 @@ function Question({ question, index, selectedOptionId, onSelect, prefix }: { que
   return <fieldset className="border border-line bg-paper p-5 sm:p-6"><legend className="sr-only">Pregunta {index + 1}</legend><p className="font-tabular text-xs text-muted">PREGUNTA {String(index + 1).padStart(2, "0")}</p><p className="mt-3 text-lg font-medium leading-7">{question.prompt}</p><div className="mt-6 grid gap-3">{question.options.map((option) => { const id = `${prefix}-${question.id}-${option.id}`; return <label className={`flex min-h-12 cursor-pointer items-center gap-3 border px-4 py-3 text-sm transition-colors ${selectedOptionId === option.id ? "border-jade bg-[#E0F1EB]" : "hover:bg-surface"}`} htmlFor={id} key={option.id}><input id={id} name={`${prefix}-${question.id}`} type="radio" className="size-4 accent-jade" checked={selectedOptionId === option.id} onChange={() => onSelect(question.id, option.id)} /><span>{option.label}</span></label>; })}</div></fieldset>;
 }
 
-export function ExamPlayer({ exam }: { exam: EmployeeExam }) {
+export function ExamPlayer({ exam: sourceExam }: { exam: EmployeeExam }) {
+  const attemptLimit = sourceExam.max_attempts ? `${sourceExam.max_attempts}` : "Sin límite";
+  const exam = {
+    ...sourceExam,
+    description: sourceExam.description ? `${sourceExam.description} Intentos permitidos: ${attemptLimit}.` : `Intentos permitidos: ${attemptLimit}.`,
+  };
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [activeQuestion, setActiveQuestion] = useState(0);

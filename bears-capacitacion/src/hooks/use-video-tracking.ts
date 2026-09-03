@@ -8,6 +8,8 @@ type VideoTrackingOptions = {
   durationSeconds: number;
   initialPosition?: number;
   initialRanges?: WatchedRange[];
+  initiallyCompleted?: boolean;
+  onCompleted?: () => void;
 };
 
 export function useVideoTracking({
@@ -15,12 +17,20 @@ export function useVideoTracking({
   durationSeconds,
   initialPosition = 0,
   initialRanges = [],
+  initiallyCompleted = false,
+  onCompleted,
 }: VideoTrackingOptions) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const rangesRef = useRef<WatchedRange[]>(initialRanges);
   const lastObservedRef = useRef(initialPosition);
   const playingRef = useRef(false);
   const pendingRef = useRef(false);
+  const completionReportedRef = useRef(initiallyCompleted);
+  const onCompletedRef = useRef(onCompleted);
+
+  useEffect(() => {
+    onCompletedRef.current = onCompleted;
+  }, [onCompleted]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -43,7 +53,7 @@ export function useVideoTracking({
       if (pendingRef.current || rangesRef.current.length === 0) return;
       pendingRef.current = true;
       try {
-        await fetch("/api/video-progress", {
+        const response = await fetch("/api/video-progress", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -54,6 +64,11 @@ export function useVideoTracking({
           }),
           keepalive: true,
         });
+        const result = await response.json().catch(() => null) as { completed?: boolean } | null;
+        if (response.ok && result?.completed && !completionReportedRef.current) {
+          completionReportedRef.current = true;
+          onCompletedRef.current?.();
+        }
       } finally {
         pendingRef.current = false;
       }

@@ -16,6 +16,13 @@ const nullableFranchiseId = z.preprocess(
   databaseUuid.nullable(),
 );
 
+function isMissingAuthIdentity(error: { status?: number; code?: string; message?: string } | null) {
+  if (!error) return false;
+  if (error.status === 404 || error.code === "user_not_found") return true;
+  const message = error.message?.toLowerCase() ?? "";
+  return message.includes("user not found") || message.includes("user does not exist");
+}
+
 const managedProfileSchema = z.object({
   id: databaseUuid,
   email: z.string().trim().email("Ingresá un correo válido."),
@@ -137,18 +144,20 @@ export async function updateUser(input: unknown) {
   if (viewer.id === profile.id && !profile.isActive) return { error: "No podés desactivar tu propia cuenta." };
 
   const admin = createAdminClient();
-  const { data: existingProfile } = await admin.from("profiles").select("role, is_super_admin").eq("id", profile.id).maybeSingle();
+  const { data: existingProfile } = await admin.from("profiles").select("email, full_name, role, is_super_admin").eq("id", profile.id).maybeSingle();
   if (!existingProfile) return { error: "El perfil seleccionado no existe." };
   if (existingProfile.is_super_admin && !viewer.isSuperAdmin) return { error: "No tenés permiso para modificar una cuenta con acceso comercial." };
   if (!viewer.isSuperAdmin && (existingProfile.role === "admin" || profile.role === "admin")) return { error: "Solo la superadministración puede administrar cuentas administradoras." };
   if (existingProfile.is_super_admin && profile.role !== "admin") return { error: "Primero revocá el acceso comercial antes de cambiar el rol de esta cuenta." };
   if (viewer.id === profile.id && profile.role !== "admin") return { error: "No podés quitarte tu propio rol administrador." };
 
-  const { error: authError } = await admin.auth.admin.updateUserById(profile.id, {
-    email: profile.email,
-    user_metadata: { full_name: profile.fullName },
-  });
-  if (authError) return { error: "No pudimos actualizar el correo de la cuenta." };
+  if (existingProfile.email !== profile.email || existingProfile.full_name !== profile.fullName) {
+    const { error: authError } = await admin.auth.admin.updateUserById(profile.id, {
+      email: profile.email,
+      user_metadata: { full_name: profile.fullName },
+    });
+    if (authError) return { error: "No pudimos actualizar los datos de acceso de la cuenta." };
+  }
 
   const { error: profileError } = await admin.from("profiles").update({
     email: profile.email,
@@ -164,6 +173,67 @@ export async function updateUser(input: unknown) {
   if (profileError) return { error: "No pudimos actualizar el perfil." };
   if (!profile.isActive) await admin.auth.admin.signOut(profile.id, "global");
   return { data: { id: profile.id } };
+}
+
+export async function setUserActiveStatus(input: unknown) {
+  const viewer = await requireRole(["admin"]);
+  const parsed = z.object({ userId: databaseUuid, isActive: z.boolean() }).safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message };
+  if (viewer.id === parsed.data.userId && !parsed.data.isActive) return { error: "No podés desactivar tu propia cuenta." };
+
+  const admin = createAdminClient();
+  const { data: existingProfile } = await admin
+    .from("profiles")
+    .select("role, is_super_admin")
+    .eq("id", parsed.data.userId)
+    .maybeSingle();
+  if (!existingProfile) return { error: "El perfil seleccionado no existe." };
+  if (existingProfile.is_super_admin && !viewer.isSuperAdmin) return { error: "No tenés permiso para modificar una cuenta con acceso comercial." };
+  if (!viewer.isSuperAdmin && existingProfile.role === "admin") return { error: "Solo la superadministración puede administrar cuentas administradoras." };
+
+  const { error } = await admin
+    .from("profiles")
+    .update({ is_active: parsed.data.isActive })
+    .eq("id", parsed.data.userId);
+  if (error) return { error: "No pudimos actualizar el acceso de la cuenta." };
+  if (!parsed.data.isActive) await admin.auth.admin.signOut(parsed.data.userId, "global");
+  return { data: { id: parsed.data.userId } };
+}
+
+export async function deleteUser(input: unknown) {
+  const viewer = await requireRole(["admin"]);
+  const parsed = z.object({ userId: databaseUuid }).safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message };
+  if (viewer.id === parsed.data.userId) return { error: "No podés eliminar tu propia cuenta." };
+
+  const admin = createAdminClient();
+  const { data: existingProfile } = await admin
+    .from("profiles")
+    .select("role, is_super_admin")
+    .eq("id", parsed.data.userId)
+    .maybeSingle();
+  if (!existingProfile) return { error: "El perfil seleccionado no existe." };
+  if (existingProfile.is_super_admin && !viewer.isSuperAdmin) return { error: "No tenés permiso para eliminar una cuenta con acceso comercial." };
+  if (!viewer.isSuperAdmin && existingProfile.role === "admin") return { error: "Solo la superadministración puede eliminar cuentas administradoras." };
+
+  const cleanupResults = await Promise.all([
+    admin.from("courses").update({ created_by: null }).eq("created_by", parsed.data.userId),
+    admin.from("enrollments").update({ assigned_by: null }).eq("assigned_by", parsed.data.userId),
+    admin.from("manuals").update({ created_by: null }).eq("created_by", parsed.data.userId),
+  ]);
+  if (cleanupResults.some(({ error }) => error)) return { error: "No pudimos preparar los registros vinculados para eliminar la cuenta." };
+
+  const { error: authError } = await admin.auth.admin.deleteUser(parsed.data.userId, false);
+  if (authError && !isMissingAuthIdentity(authError)) {
+    return { error: "No pudimos eliminar la cuenta de acceso. El perfil se conservó." };
+  }
+
+  if (authError) {
+    const { error: profileError } = await admin.from("profiles").delete().eq("id", parsed.data.userId);
+    if (profileError) return { error: "No pudimos eliminar el perfil de la cuenta." };
+  }
+
+  return { data: { id: parsed.data.userId } };
 }
 
 export async function resetUserPassword(input: unknown) {

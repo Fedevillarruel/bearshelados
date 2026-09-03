@@ -14,7 +14,7 @@ function formatDate(date: string | null) {
 export default async function MyProgressPage() {
 	if (!isSupabaseConfigured()) return <PortalShell role="empleado" view="progress" />;
 
-	const viewer = await requireRole(["empleado"]);
+	const viewer = await requireRole(["empleado", "franquiciado"]);
 	const courses = await getEmployeeProgress(viewer);
 	const completed = courses.filter((course) => course.enrollment.status === "completado").length;
 

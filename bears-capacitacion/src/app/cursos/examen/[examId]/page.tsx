@@ -11,7 +11,7 @@ type ExamPageProps = {
 export default async function ExamPage({ params }: ExamPageProps) {
   if (!isSupabaseConfigured()) notFound();
 
-  const viewer = await requireRole(["empleado"]);
+  const viewer = await requireRole(["empleado", "franquiciado"]);
   const { examId } = await params;
   const exam = await getEmployeeExam(viewer, examId);
   if (!exam) notFound();

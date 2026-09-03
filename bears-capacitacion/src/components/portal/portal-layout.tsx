@@ -29,6 +29,8 @@ const navigationByRole: Record<AppRole, NavigationItem[]> = {
   franquiciado: [
     { href: "/franquicia/dashboard", label: "Resumen", icon: LayoutDashboard, key: "dashboard" },
     { href: "/franquicia/equipo", label: "Equipo", icon: Users, key: "team" },
+    { href: "/cursos/mis-cursos", label: "Mis cursos", icon: BookOpen, key: "learning" },
+    { href: "/cursos/progreso", label: "Mi progreso", icon: BarChart3, key: "progress" },
     { href: "/franquicia/manuales", label: "Manuales", icon: FileText, key: "manuals" },
   ],
   empleado: [

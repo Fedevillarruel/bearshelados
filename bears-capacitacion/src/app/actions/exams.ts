@@ -57,7 +57,7 @@ export async function startExam(examId: string) {
   const parsedExamId = databaseUuid.safeParse(examId);
   if (!parsedExamId.success) return { error: "El examen seleccionado no es válido." };
 
-  const viewer = await requireRole(["empleado"]);
+  const viewer = await requireRole(["empleado", "franquiciado"]);
   const enrolledExam = await getEnrolledExam(parsedExamId.data, viewer.id);
   if ("error" in enrolledExam) return enrolledExam;
   const { admin, exam } = enrolledExam;
@@ -100,7 +100,7 @@ export async function startExam(examId: string) {
 }
 
 export async function submitExam(input: unknown) {
-  const viewer = await requireRole(["empleado"]);
+  const viewer = await requireRole(["empleado", "franquiciado"]);
   const parsed = submissionSchema.safeParse(input);
   if (!parsed.success) return { error: "Las respuestas enviadas no son válidas." };
 

@@ -19,7 +19,7 @@ export default async function AdminCoursePage({ params }: { params: Promise<{ co
 
   const [{ data: moduleData }, { data: employeeData }, { data: franchiseData }, { data: enrollmentData }] = await Promise.all([
     supabase.from("modules").select("id, title, description, order_index, is_published").eq("course_id", course.id).order("order_index"),
-    supabase.from("profiles").select("id, full_name, email, franchise_id").eq("role", "empleado").eq("is_active", true).order("full_name"),
+    supabase.from("profiles").select("id, full_name, email, franchise_id").in("role", ["empleado", "franquiciado"]).eq("is_active", true).order("full_name"),
     supabase.from("franchises").select("id, name"),
     supabase.from("enrollments").select("user_id, due_date, status, progress_percent").eq("course_id", course.id),
   ]);

@@ -59,7 +59,7 @@ export async function middleware(request: NextRequest) {
     (pathname.startsWith("/admin") && profile.role !== "admin") ||
     (pathname.startsWith("/admin/tiendanube") && !profile.is_super_admin) ||
     (pathname.startsWith("/franquicia") && profile.role !== "franquiciado") ||
-    (pathname.startsWith("/cursos") && profile.role !== "empleado");
+    (pathname.startsWith("/cursos") && !["empleado", "franquiciado"].includes(profile.role));
 
   if (invalidRoute) {
     const url = request.nextUrl.clone();

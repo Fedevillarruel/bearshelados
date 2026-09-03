@@ -67,7 +67,7 @@ export function FranchisesManager({ franchises }: { franchises: ManagedFranchise
     });
   }
   function remove(franchise: ManagedFranchise) {
-    if (!window.confirm(`¿Eliminar “${franchise.name}”? Sólo se permite cuando no tiene usuarios asignados.`)) return;
+    if (!window.confirm(`¿Eliminar “${franchise.name}”? El equipo quedará sin franquicia, pero sus cuentas no se borrarán. Las asignaciones comerciales vinculadas también se eliminarán.`)) return;
     setNotice(null);
     startTransition(async () => {
       const response = await deleteFranchise(franchise.id);

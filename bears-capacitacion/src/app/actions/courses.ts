@@ -284,8 +284,8 @@ export async function assignCourse(input: unknown) {
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
   const assignment = parsed.data;
   const supabase = await createClient();
-  const { data: employees } = await supabase.from("profiles").select("id").in("id", assignment.userIds).eq("role", "empleado").eq("is_active", true);
-  if ((employees?.length ?? 0) !== assignment.userIds.length) return { error: "Solo podés asignar cursos a empleados activos." };
+  const { data: participants } = await supabase.from("profiles").select("id").in("id", assignment.userIds).in("role", ["empleado", "franquiciado"]).eq("is_active", true);
+  if ((participants?.length ?? 0) !== assignment.userIds.length) return { error: "Solo podés asignar cursos a empleados o franquiciados activos." };
   const { error } = await supabase.from("enrollments").upsert(assignment.userIds.map((userId) => ({ user_id: userId, course_id: assignment.courseId, assigned_by: viewer.id, due_date: assignment.dueDate })), { onConflict: "user_id,course_id" });
   if (error) return { error: "No pudimos asignar el curso." };
   refreshCoursePaths(assignment.courseId);
