@@ -5,6 +5,7 @@ import type { TiendanubeConfig } from "@/lib/tiendanube/config";
 
 const requiredScopes = ["read_orders", "read_products"] as const;
 const allowedScopes = new Set<string>(requiredScopes);
+const bearsStoreAdminOrigin = "https://heladosbears.mitiendanube.com";
 
 type TokenExchangeResult = {
   accessToken: string;
@@ -25,7 +26,7 @@ export function hashTiendanubeOAuthState(state: string) {
 }
 
 export function createTiendanubeAuthorizationUrl(config: TiendanubeConfig, state: string) {
-  const url = new URL(`https://www.tiendanube.com/apps/${config.appId}/authorize`);
+  const url = new URL(`/admin/apps/${config.appId}/authorize`, bearsStoreAdminOrigin);
   url.searchParams.set("state", state);
   return url;
 }

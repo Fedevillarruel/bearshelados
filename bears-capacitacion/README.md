@@ -55,7 +55,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SITE_URL=https://your-production-domain.example
 TIENDANUBE_CLIENT_ID=
 TIENDANUBE_CLIENT_SECRET=
-TIENDANUBE_APP_USER_AGENT=Bears Helados Capacitación (soporte@bears-helados.com)
+TIENDANUBE_APP_USER_AGENT=BearsHeladosCapacitacion (federico@fedini.app)
 TIENDANUBE_TOKEN_ENCRYPTION_KEY=
 CRON_SECRET=
 ```
