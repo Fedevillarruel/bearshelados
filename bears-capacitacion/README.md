@@ -40,7 +40,10 @@ supabase/migrations/011_course_asset_files.sql
 supabase/migrations/012_harden_user_access.sql
 supabase/migrations/013_module_primary_video.sql
 supabase/migrations/014_resource_progress.sql
+supabase/migrations/015_auth_user_deletion_recovery.sql
 ```
+
+La migración `015_auth_user_deletion_recovery.sql` habilita exclusivamente para `service_role` la recuperación de identidades que Supabase Auth no puede cargar al eliminarlas.
 
 Si `public.profiles` no existe, la instalación anterior se revirtió antes de crear el esquema base. Comprobá que las tablas estén ausentes con:
 

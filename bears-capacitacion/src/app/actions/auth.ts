@@ -11,19 +11,25 @@ import { z } from "zod";
 
 export type ActionState = { error?: string; success?: string };
 
+type AuthAdminError = { status?: number; code?: string; message?: string };
+
 const nullableFranchiseId = z.preprocess(
   (value) => typeof value === "string" ? value.trim() || null : value ?? null,
   databaseUuid.nullable(),
 );
 
-function isMissingAuthIdentity(error: { status?: number; code?: string; message?: string } | null) {
+function isMissingAuthIdentity(error: AuthAdminError | null) {
   if (!error) return false;
   if (error.status === 404 || error.code === "user_not_found") return true;
   const message = error.message?.toLowerCase() ?? "";
   return message.includes("user not found") || message.includes("user does not exist");
 }
 
-function logAuthDeletionFailure(error: { status?: number; code?: string; message?: string }) {
+function isAuthUserLoadFailure(error: AuthAdminError | null) {
+  return error?.status === 500 && error.message?.toLowerCase().includes("database error loading user");
+}
+
+function logAuthDeletionFailure(error: AuthAdminError) {
   const message = error.message
     ?.replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, "[correo oculto]")
     .replace(/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/gi, "[id oculto]")
@@ -237,6 +243,20 @@ export async function deleteUser(input: unknown) {
   if (cleanupResults.some(({ error }) => error)) return { error: "No pudimos preparar los registros vinculados para eliminar la cuenta." };
 
   const { error: authError } = await admin.auth.admin.deleteUser(parsed.data.userId, false);
+  if (isAuthUserLoadFailure(authError)) {
+    const { data: deletedByRecovery, error: recoveryError } = await admin.rpc("delete_auth_user_for_service_role", {
+      target_user_id: parsed.data.userId,
+    });
+    if (recoveryError || typeof deletedByRecovery !== "boolean") {
+      if (recoveryError) logAuthDeletionFailure(recoveryError);
+      return { error: "La identidad de acceso requiere reparación en Supabase. El perfil se conservó." };
+    }
+    if (deletedByRecovery) return { data: { id: parsed.data.userId } };
+
+    const { error: profileError } = await admin.from("profiles").delete().eq("id", parsed.data.userId);
+    if (profileError) return { error: "No pudimos eliminar el perfil de la cuenta." };
+    return { data: { id: parsed.data.userId } };
+  }
   if (authError && !isMissingAuthIdentity(authError)) {
     logAuthDeletionFailure(authError);
     return { error: "No pudimos eliminar la cuenta de acceso. El perfil se conservó." };
