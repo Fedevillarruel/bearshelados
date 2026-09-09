@@ -26,6 +26,24 @@ function resumableUploadEndpoint() {
   return url.toString();
 }
 
+function uploadErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "object" && error) {
+    const candidate = error as { message?: unknown; originalResponse?: { getBody?: () => string } };
+    const responseBody = candidate.originalResponse?.getBody?.();
+    if (responseBody) {
+      try {
+        const parsed = JSON.parse(responseBody) as { statusCode?: string; error?: string; message?: string; code?: string };
+        return [parsed.statusCode, parsed.error, parsed.message, parsed.code].filter(Boolean).join(" - ");
+      } catch {
+        return responseBody;
+      }
+    }
+    if (typeof candidate.message === "string" && candidate.message) return candidate.message;
+  }
+  return "No pudimos subir el archivo.";
+}
+
 export function uploadPrivateFile({ bucket, path, token, file, contentType }: ResumableUploadInput) {
   return new Promise<void>((resolve, reject) => {
     const upload = new Upload(file, {
@@ -41,7 +59,7 @@ export function uploadPrivateFile({ bucket, path, token, file, contentType }: Re
         contentType: contentType || file.type || "application/octet-stream",
         cacheControl: "3600",
       },
-      onError: reject,
+      onError: (error) => reject(new Error(uploadErrorMessage(error))),
       onSuccess: () => resolve(),
     });
 

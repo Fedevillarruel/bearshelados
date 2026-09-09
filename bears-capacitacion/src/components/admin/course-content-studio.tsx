@@ -165,8 +165,8 @@ function AssetEditor({
     try {
       await uploadPrivateFile({ bucket: "course-media", path: signedUpload.data.path, token: signedUpload.data.token, file: file.file, contentType: file.contentType });
       return { data: signedUpload.data.path };
-    } catch {
-      return { error: "No pudimos subir el archivo." };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "No pudimos subir el archivo." };
     }
   }
 

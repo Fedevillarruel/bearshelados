@@ -65,8 +65,8 @@ function ManualForm({ manual, categories, onClose }: { manual?: ManualRecord; ca
     try {
       await uploadPrivateFile({ bucket: "manuals", path: uploadUrl.data.path, token: uploadUrl.data.token, file: selectedFile, contentType: selectedFile.type });
       return { data: uploadUrl.data.path };
-    } catch {
-      return { error: "No pudimos subir el archivo." };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "No pudimos subir el archivo." };
     }
   }
 

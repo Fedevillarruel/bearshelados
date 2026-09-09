@@ -216,8 +216,8 @@ async function uploadCourseAssetFile(
       contentType: pendingFile.contentType,
     });
     return { data: signedUpload.data.path };
-  } catch {
-    return { error: "No pudimos subir el archivo." };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "No pudimos subir el archivo." };
   }
 }
 
@@ -339,7 +339,17 @@ function ModuleForm({
         0,
         ...(courseModule?.assets.map((asset) => asset.orderIndex) ?? []),
       );
-      for (const [index, draft] of drafts.entries()) {
+      const normalizedDrafts = drafts.map((draft) =>
+        drafts.length === 1 && draft.type === "video"
+          ? {
+              ...draft,
+              title: draft.title.trim() || title,
+              description: draft.description.trim() || description,
+              isPrimary: true,
+            }
+          : draft,
+      );
+      for (const [index, draft] of normalizedDrafts.entries()) {
         let storagePath: string | null = null;
         if (draft.file) {
           const upload = await uploadCourseAssetFile(courseId, draft.file);
@@ -727,8 +737,8 @@ function AssetForm({
         contentType: selectedFile.type,
       });
       return { data: signedUpload.data.path };
-    } catch {
-      return { error: "No pudimos subir el archivo." };
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : "No pudimos subir el archivo." };
     }
   }
 
