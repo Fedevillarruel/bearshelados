@@ -30,6 +30,7 @@ import {
 import {
   assignCourse,
   createCourseAssetUploadUrl,
+  createCourseVideoPosterUploadUrl,
   deleteAsset,
   deleteExam,
   deleteModule,
@@ -41,7 +42,9 @@ import {
 } from "@/app/actions/courses";
 import {
   courseAssetFileAccept,
+  courseCoverFileAccept,
   detectCourseAssetFile,
+  detectCourseCoverFile,
   type CourseAssetType,
   type PendingCourseAssetFile,
 } from "@/lib/course-asset-files";
@@ -57,6 +60,7 @@ export type BuilderAsset = {
   description: string | null;
   url: string;
   storagePath: string | null;
+  videoPosterStoragePath: string | null;
   durationSeconds: number;
   orderIndex: number;
 };
@@ -177,6 +181,7 @@ type ModuleContentDraft = {
   source: string;
   durationSeconds: string;
   file: PendingCourseAssetFile | null;
+  videoPosterFile: PendingCourseAssetFile | null;
   isPrimary: boolean;
 };
 
@@ -189,6 +194,7 @@ function newModuleContentDraft(): ModuleContentDraft {
     source: "",
     durationSeconds: "",
     file: null,
+    videoPosterFile: null,
     isPrimary: false,
   };
 }
@@ -217,7 +223,43 @@ async function uploadCourseAssetFile(
     });
     return { data: signedUpload.data.path };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "No pudimos subir el archivo." };
+    return {
+      error:
+        error instanceof Error ? error.message : "No pudimos subir el archivo.",
+    };
+  }
+}
+
+async function uploadCourseVideoPosterFile(
+  courseId: string,
+  pendingFile: PendingCourseAssetFile,
+) {
+  const signedUpload = await createCourseVideoPosterUploadUrl({
+    courseId,
+    fileName: pendingFile.file.name,
+    contentType: pendingFile.contentType,
+    fileSize: pendingFile.file.size,
+  });
+  if ("error" in signedUpload && signedUpload.error)
+    return { error: signedUpload.error };
+  if (!("data" in signedUpload) || !signedUpload.data)
+    return { error: "No pudimos preparar la subida de la portada del video." };
+  try {
+    await uploadPrivateFile({
+      bucket: "course-media",
+      path: signedUpload.data.path,
+      token: signedUpload.data.token,
+      file: pendingFile.file,
+      contentType: pendingFile.contentType,
+    });
+    return { data: signedUpload.data.path };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "No pudimos subir la portada del video.",
+    };
   }
 }
 
@@ -302,12 +344,31 @@ function ModuleForm({
               file: detected,
               title:
                 draft.title.trim() || selectedFile.name.replace(/\.[^.]+$/, ""),
+              videoPosterFile:
+                detected.type === "video" ? draft.videoPosterFile : null,
               isPrimary: detected.type === "video" ? draft.isPrimary : false,
             }
           : draft,
       ),
     );
     if (detected.type === "video") loadVideoDuration(draftId, selectedFile);
+  }
+
+  function handleDraftPosterFile(
+    draftId: string,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) return;
+    const detected = detectCourseCoverFile(selectedFile);
+    if (!detected) {
+      setError(
+        "La portada del video debe ser una imagen JPEG, PNG, WebP o GIF.",
+      );
+      return;
+    }
+    setError(null);
+    updateDraft(draftId, { videoPosterFile: detected });
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -351,6 +412,7 @@ function ModuleForm({
       );
       for (const [index, draft] of normalizedDrafts.entries()) {
         let storagePath: string | null = null;
+        let videoPosterStoragePath: string | null = null;
         if (draft.file) {
           const upload = await uploadCourseAssetFile(courseId, draft.file);
           if ("error" in upload && upload.error) {
@@ -362,6 +424,22 @@ function ModuleForm({
             return;
           }
           storagePath = "data" in upload ? (upload.data ?? null) : null;
+        }
+        if (draft.type === "video" && draft.videoPosterFile) {
+          const upload = await uploadCourseVideoPosterFile(
+            courseId,
+            draft.videoPosterFile,
+          );
+          if ("error" in upload && upload.error) {
+            setSaving(false);
+            setError(
+              `El módulo se guardó, pero no pudimos cargar la portada de “${draft.title}”: ${upload.error}`,
+            );
+            router.refresh();
+            return;
+          }
+          videoPosterStoragePath =
+            "data" in upload ? (upload.data ?? null) : null;
         }
         const savedAsset = await saveAsset({
           courseId: null,
@@ -377,6 +455,7 @@ function ModuleForm({
                 ? ""
                 : draft.source,
           storagePath,
+          videoPosterStoragePath,
           durationSeconds: Number(draft.durationSeconds),
           sizeBytes: draft.file?.file.size ?? null,
           orderIndex: baseOrderIndex + index + 1,
@@ -483,6 +562,10 @@ function ModuleForm({
                           updateDraft(draft.id, {
                             type: event.target.value as AssetType,
                             file: null,
+                            videoPosterFile:
+                              event.target.value === "video"
+                                ? draft.videoPosterFile
+                                : null,
                             isPrimary:
                               event.target.value === "video"
                                 ? draft.isPrimary
@@ -623,6 +706,26 @@ function ModuleForm({
                         />
                         Video principal
                       </label>
+                      <section className="border border-dashed border-line bg-surface p-3 sm:col-span-2">
+                        <p className="text-sm font-medium">Portada del video</p>
+                        <label className="mt-3 inline-flex h-9 cursor-pointer items-center gap-2 rounded-sm border bg-paper px-3 text-sm font-medium hover:bg-surface">
+                          <Upload className="size-4" aria-hidden="true" />
+                          Elegir imagen
+                          <input
+                            className="sr-only"
+                            type="file"
+                            accept={courseCoverFileAccept}
+                            onChange={(event) =>
+                              handleDraftPosterFile(draft.id, event)
+                            }
+                          />
+                        </label>
+                        {draft.videoPosterFile ? (
+                          <p className="mt-2 text-xs text-muted">
+                            {draft.videoPosterFile.file.name}
+                          </p>
+                        ) : null}
+                      </section>
                     </div>
                   ) : null}
                 </article>
@@ -697,7 +800,12 @@ function AssetForm({
   const [storagePath, setStoragePath] = useState<string | null>(
     asset?.storagePath ?? null,
   );
+  const [videoPosterStoragePath, setVideoPosterStoragePath] = useState<
+    string | null
+  >(asset?.videoPosterStoragePath ?? null);
   const [file, setFile] = useState<File | null>(null);
+  const [videoPosterFile, setVideoPosterFile] =
+    useState<PendingCourseAssetFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const acceptsFiles = type === "video" || type === "pdf" || type === "image";
@@ -737,9 +845,30 @@ function AssetForm({
         contentType: selectedFile.type,
       });
       return { data: signedUpload.data.path };
-      } catch (error) {
-        return { error: error instanceof Error ? error.message : "No pudimos subir el archivo." };
+    } catch (error) {
+      return {
+        error:
+          error instanceof Error
+            ? error.message
+            : "No pudimos subir el archivo.",
+      };
     }
+  }
+
+  function handleVideoPosterFile(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0] ?? null;
+    if (!selectedFile) return;
+    const detected = detectCourseCoverFile(selectedFile);
+    if (!detected) {
+      setVideoPosterFile(null);
+      setError(
+        "La portada del video debe ser una imagen JPEG, PNG, WebP o GIF.",
+      );
+      return;
+    }
+    setError(null);
+    setVideoPosterFile(detected);
+    setVideoPosterStoragePath(null);
   }
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -748,6 +877,8 @@ function AssetForm({
     setError(null);
     startTransition(async () => {
       let nextStoragePath = storagePath;
+      let nextVideoPosterStoragePath =
+        type === "video" ? videoPosterStoragePath : null;
       if (file) {
         const upload = await uploadSelectedFile(file);
         if ("error" in upload && upload.error) {
@@ -756,6 +887,19 @@ function AssetForm({
           return;
         }
         nextStoragePath = "data" in upload ? (upload.data ?? null) : null;
+      }
+      if (type === "video" && videoPosterFile) {
+        const upload = await uploadCourseVideoPosterFile(
+          course.id,
+          videoPosterFile,
+        );
+        if ("error" in upload && upload.error) {
+          setError(upload.error);
+          setSaving(false);
+          return;
+        }
+        nextVideoPosterStoragePath =
+          "data" in upload ? (upload.data ?? null) : null;
       }
       const response = await saveAsset({
         id: asset?.id,
@@ -766,6 +910,7 @@ function AssetForm({
         description: optional(description),
         url: type === "text" ? source : nextStoragePath ? "" : source,
         storagePath: nextStoragePath,
+        videoPosterStoragePath: nextVideoPosterStoragePath,
         durationSeconds: Number(durationSeconds),
         orderIndex:
           asset?.orderIndex ??
@@ -795,6 +940,10 @@ function AssetForm({
               setType(event.target.value as AssetType);
               setStoragePath(null);
               setFile(null);
+              if (event.target.value !== "video") {
+                setVideoPosterFile(null);
+                setVideoPosterStoragePath(null);
+              }
             }}
           >
             <option value="text">Texto</option>
@@ -897,21 +1046,59 @@ function AssetForm({
         </div>
       ) : null}
       {type === "video" ? (
-        <label
-          className="grid gap-2 text-sm font-medium"
-          htmlFor="asset-duration"
-        >
-          Duración (segundos)
-          <input
-            id="asset-duration"
-            className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade"
-            type="number"
-            min="1"
-            value={durationSeconds}
-            onChange={(event) => setDurationSeconds(event.target.value)}
-            required
-          />
-        </label>
+        <div className="grid gap-4">
+          <label
+            className="grid gap-2 text-sm font-medium"
+            htmlFor="asset-duration"
+          >
+            Duración (segundos)
+            <input
+              id="asset-duration"
+              className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade"
+              type="number"
+              min="1"
+              value={durationSeconds}
+              onChange={(event) => setDurationSeconds(event.target.value)}
+              required
+            />
+          </label>
+          <section className="border border-dashed border-line p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Portada del video</p>
+                <p className="mt-1 text-xs text-muted">
+                  Se muestra antes de reproducir.
+                </p>
+              </div>
+              {videoPosterStoragePath ? (
+                <button
+                  className="h-8 rounded-sm border px-3 text-xs"
+                  type="button"
+                  onClick={() => setVideoPosterStoragePath(null)}
+                >
+                  Quitar portada
+                </button>
+              ) : null}
+            </div>
+            <label className="mt-4 inline-flex h-10 cursor-pointer items-center gap-2 rounded-sm border px-3 text-sm font-medium hover:bg-surface">
+              <Upload className="size-4" aria-hidden="true" />
+              Elegir imagen
+              <input
+                className="sr-only"
+                type="file"
+                accept={courseCoverFileAccept}
+                onChange={handleVideoPosterFile}
+              />
+            </label>
+            {videoPosterFile ? (
+              <p className="mt-2 text-xs text-muted">
+                {videoPosterFile.file.name}
+              </p>
+            ) : videoPosterStoragePath ? (
+              <p className="mt-2 text-xs text-muted">Portada cargada</p>
+            ) : null}
+          </section>
+        </div>
       ) : null}
       {error ? (
         <p
@@ -1650,7 +1837,10 @@ export function CourseBuilder({
     persistModuleOrder(ids);
   }
 
-  function startDraggingModule(event: DragEvent<HTMLElement>, moduleId: string) {
+  function startDraggingModule(
+    event: DragEvent<HTMLElement>,
+    moduleId: string,
+  ) {
     setDraggedModuleId(moduleId);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", moduleId);
@@ -1665,12 +1855,17 @@ export function CourseBuilder({
 
   function dropModule(event: DragEvent<HTMLElement>, targetModuleId: string) {
     event.preventDefault();
-    const sourceModuleId = event.dataTransfer.getData("text/plain") || draggedModuleId;
+    const sourceModuleId =
+      event.dataTransfer.getData("text/plain") || draggedModuleId;
     setDraggedModuleId(null);
     setDragOverModuleId(null);
     if (!sourceModuleId || sourceModuleId === targetModuleId) return;
-    const currentIndex = modules.findIndex((candidate) => candidate.id === sourceModuleId);
-    const targetIndex = modules.findIndex((candidate) => candidate.id === targetModuleId);
+    const currentIndex = modules.findIndex(
+      (candidate) => candidate.id === sourceModuleId,
+    );
+    const targetIndex = modules.findIndex(
+      (candidate) => candidate.id === targetModuleId,
+    );
     if (currentIndex < 0 || targetIndex < 0) return;
     const nextModules = [...modules];
     const [movedModule] = nextModules.splice(currentIndex, 1);

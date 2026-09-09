@@ -1634,6 +1634,15 @@ select pg_notify('pgrst', 'reload schema');
 -- END: supabase/migrations/019_large_course_media_uploads.sql
 
 -- ============================================================================
+-- BEGIN: supabase/migrations/020_video_posters.sql
+-- ============================================================================
+alter table public.assets
+  add column if not exists video_poster_storage_path text;
+
+select pg_notify('pgrst', 'reload schema');
+-- END: supabase/migrations/020_video_posters.sql
+
+-- ============================================================================
 -- BEGIN: supabase/seed.sql
 -- ============================================================================
 -- Intentionally empty. Operational users, franchises, courses, and manuals are

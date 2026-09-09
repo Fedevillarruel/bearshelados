@@ -1,6 +1,7 @@
 "use client";
 
 import { Upload } from "tus-js-client";
+import { createClient } from "@/lib/supabase/client";
 
 const uploadChunkSize = 6 * 1024 * 1024;
 
@@ -27,7 +28,6 @@ function resumableUploadEndpoint() {
 }
 
 function uploadErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message) return error.message;
   if (typeof error === "object" && error) {
     const candidate = error as { message?: unknown; originalResponse?: { getBody?: () => string } };
     const responseBody = candidate.originalResponse?.getBody?.();
@@ -41,10 +41,17 @@ function uploadErrorMessage(error: unknown) {
     }
     if (typeof candidate.message === "string" && candidate.message) return candidate.message;
   }
+  if (error instanceof Error && error.message) return error.message;
   return "No pudimos subir el archivo.";
 }
 
-export function uploadPrivateFile({ bucket, path, token, file, contentType }: ResumableUploadInput) {
+export async function uploadPrivateFile({ bucket, path, file, contentType }: ResumableUploadInput) {
+  const supabase = createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  const accessToken = session?.access_token;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!accessToken || !anonKey) throw new Error("La sesión de administrador no está disponible para subir archivos.");
+
   return new Promise<void>((resolve, reject) => {
     const upload = new Upload(file, {
       endpoint: resumableUploadEndpoint(),
@@ -52,7 +59,7 @@ export function uploadPrivateFile({ bucket, path, token, file, contentType }: Re
       retryDelays: [0, 1_000, 3_000, 5_000, 10_000],
       removeFingerprintOnSuccess: true,
       uploadDataDuringCreation: true,
-      headers: { "x-signature": token },
+      headers: { authorization: `Bearer ${accessToken}`, apikey: anonKey },
       metadata: {
         bucketName: bucket,
         objectName: path,
