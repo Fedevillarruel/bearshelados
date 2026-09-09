@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { createCourseAssetUploadUrl, deleteAsset, saveAsset } from "@/app/actions/courses";
 import { courseAssetFileAccept, detectCourseAssetFile, type CourseAssetType, type PendingCourseAssetFile } from "@/lib/course-asset-files";
-import { createClient } from "@/lib/supabase/client";
+import { uploadPrivateFile } from "@/lib/supabase/resumable-upload";
 
 type AssetType = CourseAssetType;
 
@@ -162,9 +162,12 @@ function AssetEditor({
     });
     if ("error" in signedUpload && signedUpload.error) return { error: signedUpload.error };
     if (!("data" in signedUpload) || !signedUpload.data) return { error: "No pudimos preparar la subida del archivo." };
-    const supabase = createClient();
-    const { error: uploadError } = await supabase.storage.from("course-media").uploadToSignedUrl(signedUpload.data.path, signedUpload.data.token, file.file);
-    return uploadError ? { error: "No pudimos subir el archivo." } : { data: signedUpload.data.path };
+    try {
+      await uploadPrivateFile({ bucket: "course-media", path: signedUpload.data.path, token: signedUpload.data.token, file: file.file, contentType: file.contentType });
+      return { data: signedUpload.data.path };
+    } catch {
+      return { error: "No pudimos subir el archivo." };
+    }
   }
 
   function changeType(nextType: AssetType) {
@@ -254,8 +257,8 @@ function AssetEditor({
         </label>
       ) : (
         <label className="grid gap-2 text-sm font-medium" htmlFor="content-url">
-          URL externa
-          <input id="content-url" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="url" placeholder="https://" value={source} onChange={(event) => { setSource(event.target.value); if (event.target.value) setStoragePath(null); }} required={!storagePath && !pendingFile} />
+          {type === "video" ? "URL de YouTube o video externo" : "URL externa"}
+          <input id="content-url" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="url" placeholder={type === "video" ? "https://www.youtube.com/watch?v=..." : "https://"} value={source} onChange={(event) => { setSource(event.target.value); if (event.target.value) setStoragePath(null); }} required={!storagePath && !pendingFile} />
         </label>
       )}
 
@@ -264,7 +267,7 @@ function AssetEditor({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-sm font-medium">Archivo privado</p>
-              <p className="mt-1 text-xs leading-5 text-muted">MP4, WebM, PDF, imágenes, Excel, CSV, Word y PowerPoint. Máximo 300 MB.</p>
+              <p className="mt-1 text-xs leading-5 text-muted">MP4, WebM, PDF, imágenes, Excel, CSV, Word y PowerPoint. La carga se reanuda si la conexión se interrumpe.</p>
             </div>
             {storagePath ? <button className="h-8 rounded-sm border bg-paper px-3 text-xs hover:bg-surface" type="button" onClick={() => setStoragePath(null)}>Quitar archivo</button> : null}
           </div>

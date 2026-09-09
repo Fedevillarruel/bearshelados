@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { mergeRanges, type WatchedRange, watchedSeconds } from "@/lib/video-ranges";
+import { saveVideoProgress, startVideoProgress } from "@/lib/video-progress-client";
 
 type VideoTrackingOptions = {
   assetId: string;
@@ -53,19 +54,12 @@ export function useVideoTracking({
       if (pendingRef.current || rangesRef.current.length === 0) return;
       pendingRef.current = true;
       try {
-        const response = await fetch("/api/video-progress", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            event: "progress",
-            assetId,
-            lastPosition: Math.floor(video.currentTime),
-            watchedRanges: rangesRef.current,
-          }),
-          keepalive: true,
+        const completed = await saveVideoProgress({
+          assetId,
+          lastPosition: Math.floor(video.currentTime),
+          watchedRanges: rangesRef.current,
         });
-        const result = await response.json().catch(() => null) as { completed?: boolean } | null;
-        if (response.ok && result?.completed && !completionReportedRef.current) {
+        if (completed && !completionReportedRef.current) {
           completionReportedRef.current = true;
           onCompletedRef.current?.();
         }
@@ -75,11 +69,7 @@ export function useVideoTracking({
     };
 
     const startTracking = () => {
-      void fetch("/api/video-progress", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event: "start", assetId }),
-      });
+      void startVideoProgress(assetId);
     };
 
     const onPlay = () => {

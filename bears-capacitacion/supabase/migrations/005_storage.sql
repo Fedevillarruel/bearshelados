@@ -2,6 +2,10 @@ insert into storage.buckets (id, name, public)
 values ('course-media', 'course-media', false), ('manuals', 'manuals', false), ('avatars', 'avatars', true)
 on conflict (id) do update set public = excluded.public;
 
+update storage.buckets
+set file_size_limit = 53687091200
+where id in ('course-media', 'manuals');
+
 drop policy if exists "public reads course media" on storage.objects;
 create policy "admin inserts course media" on storage.objects for insert with check (bucket_id = 'course-media' and public.is_admin());
 create policy "admin updates course media" on storage.objects for update using (bucket_id = 'course-media' and public.is_admin());

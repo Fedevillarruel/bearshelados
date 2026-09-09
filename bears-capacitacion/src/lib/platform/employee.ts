@@ -14,6 +14,10 @@ type CourseRow = {
   is_published: boolean;
 };
 
+type StoredCourseRow = CourseRow & {
+  cover_storage_path: string | null;
+};
+
 type EnrollmentRow = {
   id: string;
   course_id: string;
@@ -137,6 +141,15 @@ function shuffle<T>(items: T[]) {
   return copy;
 }
 
+async function resolveCourseCover(course: StoredCourseRow): Promise<CourseRow> {
+  const { cover_storage_path: coverStoragePath, ...publicCourse } = course;
+  if (!coverStoragePath) return publicCourse;
+  const { data: signedCover, error } = await createAdminClient().storage
+    .from("course-media")
+    .createSignedUrl(coverStoragePath, 60 * 60);
+  return error || !signedCover?.signedUrl ? publicCourse : { ...publicCourse, cover_url: signedCover.signedUrl };
+}
+
 export async function getEmployeeCourses(viewer: Viewer): Promise<EmployeeCourse[]> {
   const supabase = await createClient();
   const { data: enrollmentData } = await supabase
@@ -149,10 +162,10 @@ export async function getEmployeeCourses(viewer: Viewer): Promise<EmployeeCourse
 
   const courseIds = enrollments.map((enrollment) => enrollment.course_id);
   const [{ data: courseData }, { data: moduleData }] = await Promise.all([
-    supabase.from("courses").select("id, title, slug, description, summary, cover_url, category, estimated_minutes, is_published").in("id", courseIds),
+    supabase.from("courses").select("id, title, slug, description, summary, cover_url, cover_storage_path, category, estimated_minutes, is_published").in("id", courseIds),
     supabase.from("modules").select("id, course_id, order_index").in("course_id", courseIds).eq("is_published", true).order("order_index"),
   ]);
-  const courses = (courseData ?? []) as CourseRow[];
+  const courses = await Promise.all(((courseData ?? []) as StoredCourseRow[]).map(resolveCourseCover));
   const modules = (moduleData ?? []) as Array<Pick<ModuleRow, "id" | "course_id" | "order_index">>;
   const coursesById = new Map(courses.map((course) => [course.id, course]));
   const moduleCountByCourse = new Map<string, number>();
@@ -172,11 +185,12 @@ export async function getEmployeeCourseModule(viewer: Viewer, slug: string, modu
   const supabase = await createClient();
   const { data: courseData } = await supabase
     .from("courses")
-    .select("id, title, slug, description, summary, cover_url, category, estimated_minutes, is_published")
+    .select("id, title, slug, description, summary, cover_url, cover_storage_path, category, estimated_minutes, is_published")
     .eq("slug", slug)
     .maybeSingle();
-  const course = courseData as CourseRow | null;
-  if (!course) return null;
+  const storedCourse = courseData as StoredCourseRow | null;
+  if (!storedCourse) return null;
+  const course = await resolveCourseCover(storedCourse);
 
   const { data: enrollmentData } = await supabase
     .from("enrollments")

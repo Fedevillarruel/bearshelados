@@ -19,7 +19,9 @@ import {
   Video,
 } from "lucide-react";
 import { useVideoTracking } from "@/hooks/use-video-tracking";
+import { useYouTubeVideoTracking } from "@/hooks/use-youtube-video-tracking";
 import type { EmployeeAsset, EmployeeCourseModule } from "@/lib/platform/employee";
+import { getYouTubeEmbedUrl, getYouTubeVideoId, isYouTubeUrl } from "@/lib/youtube";
 
 type PlayerResource = {
   asset: EmployeeAsset;
@@ -75,7 +77,35 @@ function canPreviewPdf(url: string) {
   }
 }
 
-function TrackedVideo({ asset, onCompleted }: { asset: EmployeeAsset; onCompleted: () => void }) {
+function TrackedYouTubeVideo({ asset, videoId, onCompleted }: { asset: EmployeeAsset; videoId: string; onCompleted: () => void }) {
+  const { playerElementRef, isReady, isUnavailable } = useYouTubeVideoTracking({
+    assetId: asset.id,
+    videoId,
+    durationSeconds: asset.duration_seconds,
+    initialPosition: asset.progress?.last_position ?? 0,
+    initialRanges: asset.progress?.watched_ranges ?? [],
+    initiallyCompleted: asset.isCompleted,
+    onCompleted,
+  });
+  const embedUrl = getYouTubeEmbedUrl(videoId);
+
+  return (
+    <section className="overflow-hidden bg-ink">
+      {isUnavailable && embedUrl ? <iframe className="aspect-video w-full" src={embedUrl} title={asset.title} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen referrerPolicy="strict-origin-when-cross-origin">Tu navegador no permite reproducir este video.</iframe> : <div className="relative aspect-video w-full"><div ref={playerElementRef} className="h-full w-full [&_iframe]:h-full [&_iframe]:w-full" />{!isReady ? <div className="absolute inset-0 grid place-items-center bg-ink px-5 text-center text-sm text-white/80">Preparando video de YouTube...</div> : null}</div>}
+      <div className="flex items-center justify-between gap-4 border-t border-white/15 px-4 py-3 text-sm text-white/80">
+        <span className="flex min-w-0 items-center gap-2"><PlayCircle className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">{asset.title}</span></span>
+        <span className="font-tabular shrink-0">{asset.isCompleted ? "Completado" : formatMinutes(asset.duration_seconds)}</span>
+      </div>
+      {isUnavailable ? <a className="flex items-center justify-center gap-2 border-t border-white/15 px-4 py-3 text-sm font-medium text-white hover:underline" href={`https://www.youtube.com/watch?v=${videoId}`} target="_blank" rel="noreferrer"><ExternalLink className="size-4" aria-hidden="true" />Abrir en YouTube</a> : null}
+    </section>
+  );
+}
+
+function UnsupportedYouTubeVideo({ asset }: { asset: EmployeeAsset }) {
+  return <section className="overflow-hidden bg-ink text-white"><a className="flex aspect-video flex-col items-center justify-center gap-3 px-5 text-center text-sm font-medium hover:underline" href={asset.url} target="_blank" rel="noreferrer"><ExternalLink className="size-5" aria-hidden="true" /><span>Este enlace de YouTube no identifica un video reproducible.</span><span>Abrir en YouTube</span></a><div className="flex items-center justify-between gap-4 border-t border-white/15 px-4 py-3 text-sm text-white/80"><span className="flex min-w-0 items-center gap-2"><PlayCircle className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">{asset.title}</span></span><span className="font-tabular shrink-0">{formatMinutes(asset.duration_seconds)}</span></div></section>;
+}
+
+function TrackedNativeVideo({ asset, onCompleted }: { asset: EmployeeAsset; onCompleted: () => void }) {
   const { videoRef } = useVideoTracking({
     assetId: asset.id,
     durationSeconds: asset.duration_seconds,
@@ -97,6 +127,13 @@ function TrackedVideo({ asset, onCompleted }: { asset: EmployeeAsset; onComplete
       </div>
     </section>
   );
+}
+
+function TrackedVideo({ asset, onCompleted }: { asset: EmployeeAsset; onCompleted: () => void }) {
+  const youTubeVideoId = getYouTubeVideoId(asset.url);
+  if (youTubeVideoId) return <TrackedYouTubeVideo asset={asset} videoId={youTubeVideoId} onCompleted={onCompleted} />;
+  if (isYouTubeUrl(asset.url)) return <UnsupportedYouTubeVideo asset={asset} />;
+  return <TrackedNativeVideo asset={asset} onCompleted={onCompleted} />;
 }
 
 function ResourceProgressRecorder({ asset, onRecorded }: { asset: EmployeeAsset | undefined; onRecorded: () => void }) {

@@ -1,13 +1,15 @@
 "use client";
 
-import { startTransition, useState } from "react";
+import { startTransition, useState, type ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BookOpen, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
-import { deleteCourse, saveCourse } from "@/app/actions/courses";
+import { BookOpen, ChevronRight, ImageIcon, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { createCourseCoverUploadUrl, deleteCourse, saveCourse } from "@/app/actions/courses";
+import { courseCoverFileAccept, detectCourseCoverFile, type PendingCourseAssetFile } from "@/lib/course-asset-files";
+import { uploadPrivateFile } from "@/lib/supabase/resumable-upload";
 
 export type ManagedCourse = {
   id: string;
@@ -16,6 +18,7 @@ export type ManagedCourse = {
   description: string | null;
   summary: string | null;
   coverUrl: string | null;
+  coverStoragePath: string | null;
   category: string | null;
   estimatedMinutes: number;
   isPublished: boolean;
@@ -30,9 +33,8 @@ const courseFormSchema = z.object({
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Usá minúsculas, números y guiones.").max(180),
   description: z.string().trim().max(5_000),
   summary: z.string().trim().max(500),
-  coverUrl: z.union([z.literal(""), z.string().trim().url("Ingresá una URL válida.")]),
+  coverUrl: z.union([z.literal(""), z.string().trim().url("Ingresá una URL válida.").refine((value) => value.startsWith("https://"), "La URL debe usar HTTPS.")]),
   category: z.string().trim().max(100),
-  estimatedMinutes: z.number().int().min(0).max(10_000),
   isPublished: z.boolean(),
 });
 
@@ -55,36 +57,108 @@ function CourseForm({ course, nextOrderIndex, onClose }: { course?: ManagedCours
       summary: course?.summary ?? "",
       coverUrl: course?.coverUrl ?? "",
       category: course?.category ?? "",
-      estimatedMinutes: course?.estimatedMinutes ?? 0,
       isPublished: course?.isPublished ?? false,
     },
   });
+  const [coverFile, setCoverFile] = useState<PendingCourseAssetFile | null>(null);
+  const [removeCover, setRemoveCover] = useState(false);
+
+  function handleCoverFile(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) return;
+    const detected = detectCourseCoverFile(selectedFile);
+    if (!detected) {
+      setCoverFile(null);
+      setError("La portada debe ser una imagen JPEG, PNG, WebP o GIF.");
+      return;
+    }
+    setError(null);
+    setCoverFile(detected);
+    setRemoveCover(false);
+    form.setValue("coverUrl", "", { shouldValidate: true });
+  }
+
+  async function uploadCover(courseId: string, file: PendingCourseAssetFile) {
+    const signedUpload = await createCourseCoverUploadUrl({
+      courseId,
+      fileName: file.file.name,
+      contentType: file.contentType,
+      fileSize: file.file.size,
+    });
+    if ("error" in signedUpload && signedUpload.error) return { error: signedUpload.error };
+    if (!("data" in signedUpload) || !signedUpload.data) return { error: "No pudimos preparar la subida de la portada." };
+    try {
+      await uploadPrivateFile({ bucket: "course-media", path: signedUpload.data.path, token: signedUpload.data.token, file: file.file, contentType: file.contentType });
+      return { data: signedUpload.data.path };
+    } catch {
+      return { error: "No pudimos subir la portada." };
+    }
+  }
 
   function submit(values: CourseFormValues) {
     setError(null);
     setSaving(true);
     startTransition(async () => {
+      let coverStoragePath = values.coverUrl || removeCover ? null : course?.coverStoragePath ?? null;
+      let coverUrl = values.coverUrl || null;
+      if (course && coverFile) {
+        const upload = await uploadCover(course.id, coverFile);
+        if ("error" in upload && upload.error) {
+          setSaving(false);
+          setError(`No pudimos cargar la portada: ${upload.error}`);
+          return;
+        }
+        coverStoragePath = "data" in upload ? upload.data ?? null : null;
+        coverUrl = null;
+      }
       const response = await saveCourse({
         id: course?.id,
         title: values.title,
         slug: values.slug,
         description: values.description || null,
         summary: values.summary || null,
-        coverUrl: values.coverUrl || null,
+        coverUrl,
+        coverStoragePath,
         category: values.category || null,
-        estimatedMinutes: values.estimatedMinutes,
         isPublished: values.isPublished,
         orderIndex: course?.orderIndex ?? nextOrderIndex,
       });
-      setSaving(false);
       if ("error" in response && response.error) {
+        setSaving(false);
         setError(response.error);
         return;
       }
       if (!("data" in response) || !response.data) {
+        setSaving(false);
         setError("No pudimos guardar el curso.");
         return;
       }
+      if (!course && coverFile) {
+        const upload = await uploadCover(response.data.id, coverFile);
+        if ("error" in upload && upload.error) {
+          setSaving(false);
+          setError(`El curso se guardó, pero no pudimos cargar la portada: ${upload.error}`);
+          return;
+        }
+        const savedCover = await saveCourse({
+          id: response.data.id,
+          title: values.title,
+          slug: values.slug,
+          description: values.description || null,
+          summary: values.summary || null,
+          coverUrl: null,
+          coverStoragePath: "data" in upload ? upload.data ?? null : null,
+          category: values.category || null,
+          isPublished: values.isPublished,
+          orderIndex: nextOrderIndex,
+        });
+        if ("error" in savedCover && savedCover.error) {
+          setSaving(false);
+          setError(`El curso se guardó, pero no pudimos asignar la portada: ${savedCover.error}`);
+          return;
+        }
+      }
+      setSaving(false);
       if (course) {
         router.refresh();
         onClose();
@@ -92,7 +166,9 @@ function CourseForm({ course, nextOrderIndex, onClose }: { course?: ManagedCours
     });
   }
 
-  return <form className="grid gap-4" onSubmit={form.handleSubmit(submit)}><div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]"><label className="grid gap-2 text-sm font-medium" htmlFor="course-title">Título<input id="course-title" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("title")} onBlur={(event) => { form.register("title").onBlur(event); if (!form.getValues("slug")) form.setValue("slug", slugify(event.target.value), { shouldValidate: true }); }} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="course-slug">Identificador<input id="course-slug" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("slug")} /></label></div><label className="grid gap-2 text-sm font-medium" htmlFor="course-summary">Resumen<input id="course-summary" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("summary")} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="course-description">Descripción<textarea id="course-description" className="min-h-28 resize-y rounded-sm border bg-paper px-3 py-2 text-sm outline-none focus:border-jade" {...form.register("description")} /></label><div className="grid gap-4 sm:grid-cols-3"><label className="grid gap-2 text-sm font-medium" htmlFor="course-category">Categoría<input id="course-category" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("category")} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="course-duration">Duración estimada (min)<input id="course-duration" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="number" min="0" {...form.register("estimatedMinutes", { valueAsNumber: true })} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="course-cover">URL de portada<input id="course-cover" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="url" placeholder="https://" {...form.register("coverUrl")} /></label></div><label className="flex min-h-11 items-center gap-3 text-sm"><input className="size-4 accent-jade" type="checkbox" {...form.register("isPublished")} />Publicar y habilitar asignaciones</label>{Object.values(form.formState.errors).map((fieldError) => fieldError?.message ? <p className="text-sm text-alert" role="alert" key={fieldError.message}>{fieldError.message}</p> : null)}{error ? <p className="rounded-sm bg-[#FCEAE6] px-3 py-2 text-sm text-alert" role="alert">{error}</p> : null}<div className="mt-2 flex justify-end gap-3"><button className="h-11 rounded-sm border px-4 text-sm" type="button" onClick={onClose} disabled={saving}>Cancelar</button><button className="h-11 rounded-sm bg-jade px-4 text-sm font-medium text-white hover:bg-jade-deep disabled:opacity-60" type="submit" disabled={saving}>{saving ? "Guardando" : course ? "Guardar cambios" : "Crear y continuar"}</button></div></form>;
+  const coverUrl = form.register("coverUrl");
+
+  return <form className="grid gap-4" onSubmit={form.handleSubmit(submit)}><div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]"><label className="grid gap-2 text-sm font-medium" htmlFor="course-title">Título<input id="course-title" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("title")} onBlur={(event) => { form.register("title").onBlur(event); if (!form.getValues("slug")) form.setValue("slug", slugify(event.target.value), { shouldValidate: true }); }} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="course-slug">Identificador<input id="course-slug" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("slug")} /></label></div><label className="grid gap-2 text-sm font-medium" htmlFor="course-summary">Resumen<input id="course-summary" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("summary")} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="course-description">Descripción<textarea id="course-description" className="min-h-28 resize-y rounded-sm border bg-paper px-3 py-2 text-sm outline-none focus:border-jade" {...form.register("description")} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="course-category">Categoría<input id="course-category" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" {...form.register("category")} /></label><label className="grid gap-2 text-sm font-medium" htmlFor="course-cover">URL externa de portada<input id="course-cover" className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade" type="url" placeholder="https://" {...coverUrl} onChange={(event) => { coverUrl.onChange(event); if (event.target.value) { setCoverFile(null); setRemoveCover(true); } }} /></label><section className="border border-dashed border-line bg-surface p-4"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-medium">Portada adjunta</p><p className="mt-1 text-xs leading-5 text-muted">JPEG, PNG, WebP o GIF. Se entrega de forma privada a las personas con acceso al curso.</p></div>{course?.coverStoragePath && !removeCover && !coverFile ? <button className="h-8 rounded-sm border bg-paper px-3 text-xs hover:bg-surface" type="button" onClick={() => setRemoveCover(true)}>Quitar portada</button> : null}</div><label className="mt-4 inline-flex h-10 cursor-pointer items-center gap-2 rounded-sm border bg-paper px-3 text-sm font-medium transition-colors hover:bg-paper" htmlFor="course-cover-file"><Upload className="size-4" aria-hidden="true" />Seleccionar imagen<input id="course-cover-file" className="sr-only" type="file" accept={courseCoverFileAccept} onChange={handleCoverFile} /></label>{coverFile ? <p className="mt-3 flex items-center gap-2 text-xs text-muted"><ImageIcon className="size-4" aria-hidden="true" />{coverFile.file.name}</p> : course?.coverStoragePath && !removeCover ? <p className="mt-3 flex items-center gap-2 text-xs text-muted"><ImageIcon className="size-4" aria-hidden="true" />Portada privada adjunta</p> : null}</section><label className="flex min-h-11 items-center gap-3 text-sm"><input className="size-4 accent-jade" type="checkbox" {...form.register("isPublished")} />Publicar y habilitar asignaciones</label>{Object.values(form.formState.errors).map((fieldError) => fieldError?.message ? <p className="text-sm text-alert" role="alert" key={fieldError.message}>{fieldError.message}</p> : null)}{error ? <p className="rounded-sm bg-[#FCEAE6] px-3 py-2 text-sm text-alert" role="alert">{error}</p> : null}<div className="mt-2 flex justify-end gap-3"><button className="h-11 rounded-sm border px-4 text-sm" type="button" onClick={onClose} disabled={saving}>Cancelar</button><button className="h-11 rounded-sm bg-jade px-4 text-sm font-medium text-white hover:bg-jade-deep disabled:opacity-60" type="submit" disabled={saving}>{saving ? "Guardando" : course ? "Guardar cambios" : "Crear y continuar"}</button></div></form>;
 }
 
 export function CoursesManager({ courses }: { courses: ManagedCourse[] }) {

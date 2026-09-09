@@ -396,6 +396,10 @@ insert into storage.buckets (id, name, public)
 values ('course-media', 'course-media', false), ('manuals', 'manuals', false), ('avatars', 'avatars', true)
 on conflict (id) do update set public = excluded.public;
 
+update storage.buckets
+set file_size_limit = 53687091200
+where id in ('course-media', 'manuals');
+
 drop policy if exists "public reads course media" on storage.objects;
 create policy "admin inserts course media" on storage.objects for insert with check (bucket_id = 'course-media' and public.is_admin());
 create policy "admin updates course media" on storage.objects for update using (bucket_id = 'course-media' and public.is_admin());
@@ -1309,6 +1313,325 @@ grant execute on function public.delete_auth_user_for_service_role(uuid) to serv
 
 select pg_notify('pgrst', 'reload schema');
 -- END: supabase/migrations/015_auth_user_deletion_recovery.sql
+
+-- ============================================================================
+-- BEGIN: supabase/migrations/016_video_progress_refresh.sql
+-- ============================================================================
+create or replace function public.refresh_progress_from_video()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  course_uuid uuid;
+begin
+  if tg_op = 'UPDATE' and new.completed is not distinct from old.completed then
+    return new;
+  end if;
+
+  select coalesce(a.course_id, m.course_id) into course_uuid
+  from public.assets a
+  left join public.modules m on m.id = a.module_id
+  where a.id = new.asset_id;
+
+  if course_uuid is not null then
+    perform public.recalculate_enrollment_progress(new.user_id, course_uuid);
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists refresh_progress_after_video on public.video_progress;
+create trigger refresh_progress_after_video
+  after insert or update of completed on public.video_progress
+  for each row execute function public.refresh_progress_from_video();
+
+do $$
+declare
+  enrollment_record record;
+begin
+  for enrollment_record in select user_id, course_id from public.enrollments loop
+    perform public.recalculate_enrollment_progress(enrollment_record.user_id, enrollment_record.course_id);
+  end loop;
+end;
+$$;
+-- END: supabase/migrations/016_video_progress_refresh.sql
+
+-- ============================================================================
+-- BEGIN: supabase/migrations/017_storage_unlimited_uploads.sql
+-- ============================================================================
+update storage.buckets
+set file_size_limit = 53687091200
+where id in ('course-media', 'manuals');
+-- END: supabase/migrations/017_storage_unlimited_uploads.sql
+
+-- ============================================================================
+-- BEGIN: supabase/migrations/018_course_covers_and_duration.sql
+-- ============================================================================
+alter table public.courses
+  add column if not exists cover_storage_path text;
+
+create or replace function public.course_estimate_word_count(value text)
+returns integer
+language sql
+immutable
+set search_path = public
+as $$
+  select coalesce(cardinality(regexp_split_to_array(nullif(btrim(value), ''), '\s+')), 0);
+$$;
+
+create or replace function public.refresh_course_estimated_minutes(target_course_id uuid)
+returns void
+language plpgsql
+set search_path = public
+as $$
+declare
+  calculated_minutes integer;
+begin
+  if target_course_id is null then
+    return;
+  end if;
+
+  select coalesce(ceiling(sum(item.minutes)), 0)::integer
+  into calculated_minutes
+  from (
+    select case a.type
+      when 'video' then a.duration_seconds::numeric / 60
+      when 'text' then greatest(1::numeric, ceiling(public.course_estimate_word_count(a.url)::numeric / 200))
+      when 'pdf' then greatest(1::numeric, ceiling(coalesce(a.size_bytes, 0)::numeric / 262144))
+      when 'document' then greatest(1::numeric, ceiling(coalesce(a.size_bytes, 0)::numeric / 409600))
+      when 'spreadsheet' then greatest(1::numeric, ceiling(coalesce(a.size_bytes, 0)::numeric / 524288))
+      when 'image' then 1::numeric
+      when 'link' then 2::numeric
+      else 0::numeric
+    end as minutes
+    from public.assets a
+    left join public.modules m on m.id = a.module_id
+    where a.course_id = target_course_id
+      or (m.course_id = target_course_id and m.is_published)
+
+    union all
+
+    select coalesce(
+      e.time_limit_minutes::numeric,
+      greatest(
+        1::numeric,
+        ceiling(coalesce((
+          select sum(
+            0.75::numeric + (
+              public.course_estimate_word_count(q.prompt)
+              + public.course_estimate_word_count(q.explanation)
+              + coalesce((
+                select sum(public.course_estimate_word_count(o.label))
+                from public.options o
+                where o.question_id = q.id
+              ), 0)
+            )::numeric / 200
+          )
+          from public.questions q
+          where q.exam_id = e.id
+        ), 0))
+      )
+    ) as minutes
+    from public.exams e
+    left join public.modules m on m.id = e.module_id
+    where e.is_active
+      and (
+        e.course_id = target_course_id
+        or (m.course_id = target_course_id and m.is_published)
+      )
+  ) as item;
+
+  update public.courses
+  set estimated_minutes = calculated_minutes
+  where id = target_course_id;
+end;
+$$;
+
+create or replace function public.refresh_course_duration_after_asset()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  new_course_id uuid;
+  old_course_id uuid;
+begin
+  if tg_op <> 'DELETE' then
+    select coalesce(new.course_id, m.course_id)
+    into new_course_id
+    from public.modules m
+    where m.id = new.module_id;
+    new_course_id := coalesce(new.course_id, new_course_id);
+    perform public.refresh_course_estimated_minutes(new_course_id);
+  end if;
+
+  if tg_op <> 'INSERT' then
+    select coalesce(old.course_id, m.course_id)
+    into old_course_id
+    from public.modules m
+    where m.id = old.module_id;
+    old_course_id := coalesce(old.course_id, old_course_id);
+    if old_course_id is distinct from new_course_id then
+      perform public.refresh_course_estimated_minutes(old_course_id);
+    end if;
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.refresh_course_duration_after_module()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if tg_op <> 'DELETE' then
+    perform public.refresh_course_estimated_minutes(new.course_id);
+  end if;
+  if tg_op <> 'INSERT' and (tg_op = 'DELETE' or old.course_id is distinct from new.course_id) then
+    perform public.refresh_course_estimated_minutes(old.course_id);
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.refresh_course_duration_after_exam()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  new_course_id uuid;
+  old_course_id uuid;
+begin
+  if tg_op <> 'DELETE' then
+    select coalesce(new.course_id, m.course_id)
+    into new_course_id
+    from public.modules m
+    where m.id = new.module_id;
+    new_course_id := coalesce(new.course_id, new_course_id);
+    perform public.refresh_course_estimated_minutes(new_course_id);
+  end if;
+
+  if tg_op <> 'INSERT' then
+    select coalesce(old.course_id, m.course_id)
+    into old_course_id
+    from public.modules m
+    where m.id = old.module_id;
+    old_course_id := coalesce(old.course_id, old_course_id);
+    if old_course_id is distinct from new_course_id then
+      perform public.refresh_course_estimated_minutes(old_course_id);
+    end if;
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.refresh_course_duration_after_question()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  parent_exam_id uuid;
+  target_course_id uuid;
+begin
+  parent_exam_id := case when tg_op = 'DELETE' then old.exam_id else new.exam_id end;
+  select coalesce(e.course_id, m.course_id)
+  into target_course_id
+  from public.exams e
+  left join public.modules m on m.id = e.module_id
+  where e.id = parent_exam_id;
+  perform public.refresh_course_estimated_minutes(target_course_id);
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.refresh_course_duration_after_option()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  parent_question_id uuid;
+  target_course_id uuid;
+begin
+  parent_question_id := case when tg_op = 'DELETE' then old.question_id else new.question_id end;
+  select coalesce(e.course_id, m.course_id)
+  into target_course_id
+  from public.questions q
+  join public.exams e on e.id = q.exam_id
+  left join public.modules m on m.id = e.module_id
+  where q.id = parent_question_id;
+  perform public.refresh_course_estimated_minutes(target_course_id);
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists refresh_course_duration_after_asset on public.assets;
+create trigger refresh_course_duration_after_asset
+  after insert or update or delete on public.assets
+  for each row execute function public.refresh_course_duration_after_asset();
+
+drop trigger if exists refresh_course_duration_after_module on public.modules;
+create trigger refresh_course_duration_after_module
+  after insert or update or delete on public.modules
+  for each row execute function public.refresh_course_duration_after_module();
+
+drop trigger if exists refresh_course_duration_after_exam on public.exams;
+create trigger refresh_course_duration_after_exam
+  after insert or update or delete on public.exams
+  for each row execute function public.refresh_course_duration_after_exam();
+
+drop trigger if exists refresh_course_duration_after_question on public.questions;
+create trigger refresh_course_duration_after_question
+  after insert or update or delete on public.questions
+  for each row execute function public.refresh_course_duration_after_question();
+
+drop trigger if exists refresh_course_duration_after_option on public.options;
+create trigger refresh_course_duration_after_option
+  after insert or update or delete on public.options
+  for each row execute function public.refresh_course_duration_after_option();
+
+do $$
+declare
+  course_record record;
+begin
+  for course_record in select id from public.courses loop
+    perform public.refresh_course_estimated_minutes(course_record.id);
+  end loop;
+end;
+$$;
+-- END: supabase/migrations/018_course_covers_and_duration.sql
+
+-- ============================================================================
+-- BEGIN: supabase/migrations/019_large_course_media_uploads.sql
+-- ============================================================================
+update storage.buckets
+set file_size_limit = 53687091200
+where id in ('course-media', 'manuals');
+
+select pg_notify('pgrst', 'reload schema');
+-- END: supabase/migrations/019_large_course_media_uploads.sql
 
 -- ============================================================================
 -- BEGIN: supabase/seed.sql

@@ -3,15 +3,15 @@ import type { NextConfig } from "next";
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
-  "connect-src 'self' https://qrkiddqyffiaswriwxzy.supabase.co",
+  "connect-src 'self' https://qrkiddqyffiaswriwxzy.supabase.co https://qrkiddqyffiaswriwxzy.storage.supabase.co",
   "font-src 'self' data:",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  "frame-src 'self' https://qrkiddqyffiaswriwxzy.supabase.co https://www.w3.org",
-  "img-src 'self' data: blob: https://dolltmxtcoawmpltsnrk.supabase.co https://qrkiddqyffiaswriwxzy.supabase.co https://images.unsplash.com",
+  "frame-src 'self' https://qrkiddqyffiaswriwxzy.supabase.co https://www.w3.org https://www.youtube.com https://www.youtube-nocookie.com",
+  "img-src 'self' data: blob: https:",
   "media-src 'self' blob: https://qrkiddqyffiaswriwxzy.supabase.co https://interactive-examples.mdn.mozilla.net",
   "object-src 'none'",
-  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' https://www.youtube.com${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
 ].join("; ");
 

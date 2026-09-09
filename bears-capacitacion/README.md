@@ -41,6 +41,10 @@ supabase/migrations/012_harden_user_access.sql
 supabase/migrations/013_module_primary_video.sql
 supabase/migrations/014_resource_progress.sql
 supabase/migrations/015_auth_user_deletion_recovery.sql
+supabase/migrations/016_video_progress_refresh.sql
+supabase/migrations/017_storage_unlimited_uploads.sql
+supabase/migrations/018_course_covers_and_duration.sql
+supabase/migrations/019_large_course_media_uploads.sql
 ```
 
 La migración `015_auth_user_deletion_recovery.sql` habilita exclusivamente para `service_role` la recuperación de identidades que Supabase Auth no puede cargar al eliminarlas.

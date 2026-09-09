@@ -26,6 +26,7 @@ const uploadContentTypes = [
   "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ] as const;
+const coverUploadContentTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 
 const courseSchema = z.object({
   id: identifier.optional(),
@@ -33,15 +34,22 @@ const courseSchema = z.object({
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Usá minúsculas, números y guiones.").max(180),
   description: nullableText,
   summary: nullableText,
-  coverUrl: z.string().trim().url("Ingresá una URL de portada válida.").nullable().or(z.literal("")),
+  coverUrl: z.string().trim().url("Ingresá una URL de portada válida.").refine((value) => value.startsWith("https://"), "La URL de portada debe usar HTTPS.").nullable().or(z.literal("")),
+  coverStoragePath: z.string().trim().min(1).max(512).nullable(),
   category: nullableText,
-  estimatedMinutes: z.number().int().min(0).max(10_000),
   isPublished: z.boolean(),
   orderIndex: z.number().int().min(0).max(10_000),
+}).superRefine((value, context) => {
+  if (value.coverUrl && value.coverStoragePath) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["coverStoragePath"], message: "Elegí una URL externa o una imagen adjunta para la portada." });
+  }
+  if (value.coverStoragePath && !value.id) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["coverStoragePath"], message: "Primero guardá el curso antes de adjuntar una portada." });
+  }
 });
 
 const moduleSchema = z.object({
-  id: identifier.optional(),
+  id: identifier.nullish().transform((value) => value ?? undefined),
   courseId: identifier,
   title: z.string().trim().min(2, "El módulo necesita un título.").max(160),
   description: nullableText,
@@ -59,8 +67,8 @@ const assetSchema = z.object({
   description: nullableText,
   url: z.string().trim().max(5_000),
   storagePath: z.string().trim().min(1).max(512).nullable(),
-  durationSeconds: z.number().int().min(0).max(86_400),
-  sizeBytes: z.number().int().nonnegative().max(300 * 1024 * 1024).nullable().optional(),
+  durationSeconds: z.number().int().nonnegative(),
+  sizeBytes: z.number().int().nonnegative().nullable().optional(),
   orderIndex: z.number().int().min(0).max(10_000),
 }).superRefine((value, context) => {
   if ((value.courseId && value.moduleId) || (!value.courseId && !value.moduleId)) {
@@ -87,7 +95,14 @@ const uploadUrlSchema = z.object({
   courseId: identifier,
   fileName: z.string().trim().min(1).max(240),
   contentType: z.enum(uploadContentTypes, "El tipo de archivo no está permitido."),
-  fileSize: z.number().int().positive().max(300 * 1024 * 1024, "El archivo no puede superar 300 MB.").optional(),
+  fileSize: z.number().int().positive().optional(),
+});
+
+const coverUploadUrlSchema = z.object({
+  courseId: identifier,
+  fileName: z.string().trim().min(1).max(240),
+  contentType: z.enum(coverUploadContentTypes, "La portada debe ser una imagen JPEG, PNG, WebP o GIF."),
+  fileSize: z.number().int().positive().optional(),
 });
 
 const assignmentSchema = z.object({
@@ -150,14 +165,30 @@ export async function saveCourse(input: unknown) {
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
   const course = parsed.data;
   const supabase = await createClient();
+  let previousCoverStoragePath: string | null = null;
+  if (course.id) {
+    const { data: existingCourse } = await supabase.from("courses").select("cover_storage_path").eq("id", course.id).maybeSingle();
+    previousCoverStoragePath = existingCourse?.cover_storage_path ?? null;
+  }
+  if (course.coverStoragePath) {
+    const storagePrefix = `courses/${course.id}/covers/`;
+    const fileName = course.coverStoragePath.slice(storagePrefix.length);
+    if (!course.coverStoragePath.startsWith(storagePrefix) || !fileName || fileName.includes("/")) {
+      return { error: "La portada no pertenece a este curso." };
+    }
+    const { data: storedObject, error: storageError } = await createAdminClient().storage
+      .from("course-media")
+      .info(course.coverStoragePath);
+    if (storageError || !storedObject) return { error: "La portada adjunta no existe o todavía no terminó de cargarse." };
+  }
   const payload = {
     title: course.title,
     slug: course.slug,
     description: course.description,
     summary: course.summary,
     cover_url: course.coverUrl || null,
+    cover_storage_path: course.coverStoragePath,
     category: course.category,
-    estimated_minutes: course.estimatedMinutes,
     is_published: course.isPublished,
     order_index: course.orderIndex,
   };
@@ -166,6 +197,9 @@ export async function saveCourse(input: unknown) {
     : supabase.from("courses").insert({ ...payload, created_by: viewer.id }).select("id").single();
   const { data, error } = await request;
   if (error || !data) return { error: error?.message ?? "No pudimos guardar el curso." };
+  if (previousCoverStoragePath && previousCoverStoragePath !== course.coverStoragePath) {
+    await createAdminClient().storage.from("course-media").remove([previousCoverStoragePath]);
+  }
   refreshCoursePaths(data.id);
   return { data: { id: data.id } };
 }
@@ -175,8 +209,10 @@ export async function deleteCourse(courseId: string) {
   const parsed = identifier.safeParse(courseId);
   if (!parsed.success) return { error: "El curso seleccionado no es válido." };
   const supabase = await createClient();
+  const { data: course } = await supabase.from("courses").select("cover_storage_path").eq("id", parsed.data).maybeSingle();
   const { error } = await supabase.from("courses").delete().eq("id", parsed.data);
   if (error) return { error: "No pudimos eliminar el curso." };
+  if (course?.cover_storage_path) await createAdminClient().storage.from("course-media").remove([course.cover_storage_path]);
   refreshCoursePaths();
   return { data: { id: parsed.data } };
 }
@@ -232,6 +268,20 @@ export async function createCourseAssetUploadUrl(input: unknown) {
   if (!course) return { error: "El curso seleccionado no existe." };
   const { data, error } = await supabase.storage.from("course-media").createSignedUploadUrl(path);
   if (error || !data) return { error: "No pudimos preparar la subida del archivo." };
+  return { data: { path: data.path, token: data.token } };
+}
+
+export async function createCourseCoverUploadUrl(input: unknown) {
+  await requireRole(["admin"]);
+  const parsed = coverUploadUrlSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "La imagen seleccionada no es válida." };
+  const fileName = parsed.data.fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
+  const path = `courses/${parsed.data.courseId}/covers/${crypto.randomUUID()}-${fileName}`;
+  const supabase = await createClient();
+  const { data: course } = await supabase.from("courses").select("id").eq("id", parsed.data.courseId).maybeSingle();
+  if (!course) return { error: "El curso seleccionado no existe." };
+  const { data, error } = await supabase.storage.from("course-media").createSignedUploadUrl(path);
+  if (error || !data) return { error: "No pudimos preparar la subida de la portada." };
   return { data: { path: data.path, token: data.token } };
 }
 

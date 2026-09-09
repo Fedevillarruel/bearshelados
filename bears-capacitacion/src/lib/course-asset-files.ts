@@ -7,6 +7,7 @@ export type PendingCourseAssetFile = {
 };
 
 export const courseAssetFileAccept = ".mp4,.webm,.pdf,.jpg,.jpeg,.png,.webp,.gif,.xlsx,.xls,.csv,.doc,.docx,.ppt,.pptx";
+export const courseCoverFileAccept = ".jpg,.jpeg,.png,.webp,.gif";
 
 export function detectCourseAssetFile(file: File): PendingCourseAssetFile | null {
   const extension = file.name.split(".").pop()?.toLowerCase();
@@ -27,4 +28,9 @@ export function detectCourseAssetFile(file: File): PendingCourseAssetFile | null
   if (type === "application/vnd.ms-powerpoint" || extension === "ppt") return { file, type: "document", contentType: "application/vnd.ms-powerpoint" };
   if (type === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || extension === "pptx") return { file, type: "document", contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" };
   return null;
+}
+
+export function detectCourseCoverFile(file: File) {
+  const detected = detectCourseAssetFile(file);
+  return detected?.type === "image" ? detected : null;
 }

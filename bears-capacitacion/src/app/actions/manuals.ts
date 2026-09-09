@@ -24,7 +24,7 @@ const manualSchema = z.object({
   fileUrl: z.string().trim().max(2_000),
   storagePath: z.string().trim().max(512).nullable(),
   fileType: z.string().trim().max(160).nullable(),
-  sizeBytes: z.number().int().nonnegative().max(50 * 1024 * 1024).nullable(),
+  sizeBytes: z.number().int().nonnegative().nullable(),
   version: z.number().int().positive().max(10_000),
 }).superRefine((value, context) => {
   if (!value.storagePath && !z.string().url().safeParse(value.fileUrl).success) {
@@ -38,7 +38,7 @@ const manualSchema = z.object({
 const manualUploadSchema = z.object({
   fileName: z.string().trim().min(1).max(240),
   contentType: supportedFileTypes,
-  fileSize: z.number().int().positive().max(50 * 1024 * 1024, "El archivo no puede superar 50 MB."),
+  fileSize: z.number().int().positive(),
 });
 
 function refreshManualPaths() {
