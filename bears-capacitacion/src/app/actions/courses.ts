@@ -9,6 +9,7 @@ import { databaseUuid } from "@/lib/validations/ids";
 
 const identifier = databaseUuid;
 const nullableText = z.string().trim().nullable();
+const maxPrivateUploadBytes = 53_687_091_200;
 const assetTypes = [
   "video",
   "pdf",
@@ -302,6 +303,23 @@ function storageObjectSize(size: unknown) {
     : null;
 }
 
+async function ensureCourseMediaUploadLimit() {
+  try {
+    const { error } = await createAdminClient().storage.updateBucket("course-media", {
+      public: false,
+      fileSizeLimit: maxPrivateUploadBytes,
+    });
+    return error ? { error: error.message } : { data: true };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "No pudimos configurar el límite del bucket.",
+    };
+  }
+}
+
 export async function saveCourse(input: unknown) {
   const viewer = await requireRole(["admin"]);
   const parsed = courseSchema.safeParse(input);
@@ -479,12 +497,10 @@ export async function createCourseAssetUploadUrl(input: unknown) {
     .eq("id", parsed.data.courseId)
     .maybeSingle();
   if (!course) return { error: "El curso seleccionado no existe." };
-  const { data, error } = await supabase.storage
-    .from("course-media")
-    .createSignedUploadUrl(path);
-  if (error || !data)
-    return { error: "No pudimos preparar la subida del archivo." };
-  return { data: { path: data.path, token: data.token } };
+  const bucket = await ensureCourseMediaUploadLimit();
+  if ("error" in bucket && bucket.error)
+    return { error: `No pudimos configurar el bucket de videos: ${bucket.error}` };
+  return { data: { path, token: "" } };
 }
 
 export async function createCourseCoverUploadUrl(input: unknown) {
@@ -505,12 +521,10 @@ export async function createCourseCoverUploadUrl(input: unknown) {
     .eq("id", parsed.data.courseId)
     .maybeSingle();
   if (!course) return { error: "El curso seleccionado no existe." };
-  const { data, error } = await supabase.storage
-    .from("course-media")
-    .createSignedUploadUrl(path);
-  if (error || !data)
-    return { error: "No pudimos preparar la subida de la portada." };
-  return { data: { path: data.path, token: data.token } };
+  const bucket = await ensureCourseMediaUploadLimit();
+  if ("error" in bucket && bucket.error)
+    return { error: `No pudimos configurar el bucket de portadas: ${bucket.error}` };
+  return { data: { path, token: "" } };
 }
 
 export async function createCourseVideoPosterUploadUrl(input: unknown) {
@@ -530,12 +544,10 @@ export async function createCourseVideoPosterUploadUrl(input: unknown) {
     .eq("id", parsed.data.courseId)
     .maybeSingle();
   if (!course) return { error: "El curso seleccionado no existe." };
-  const { data, error } = await supabase.storage
-    .from("course-media")
-    .createSignedUploadUrl(path);
-  if (error || !data)
-    return { error: "No pudimos preparar la subida de la portada del video." };
-  return { data: { path: data.path, token: data.token } };
+  const bucket = await ensureCourseMediaUploadLimit();
+  if ("error" in bucket && bucket.error)
+    return { error: `No pudimos configurar el bucket de portadas: ${bucket.error}` };
+  return { data: { path, token: "" } };
 }
 
 export async function saveAsset(input: unknown) {

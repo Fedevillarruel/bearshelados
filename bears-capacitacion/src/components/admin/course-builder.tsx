@@ -855,6 +855,26 @@ function AssetForm({
     }
   }
 
+  function loadSelectedVideoDuration(selectedFile: File) {
+    const preview = document.createElement("video");
+    const objectUrl = URL.createObjectURL(selectedFile);
+    preview.preload = "metadata";
+    preview.onloadedmetadata = () => {
+      if (Number.isFinite(preview.duration) && preview.duration > 0) {
+        setDurationSeconds(String(Math.ceil(preview.duration)));
+      }
+      URL.revokeObjectURL(objectUrl);
+    };
+    preview.onerror = () => URL.revokeObjectURL(objectUrl);
+    preview.src = objectUrl;
+  }
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0] ?? null;
+    setFile(selectedFile);
+    if (type === "video" && selectedFile) loadSelectedVideoDuration(selectedFile);
+  }
+
   function handleVideoPosterFile(event: ChangeEvent<HTMLInputElement>) {
     const selectedFile = event.target.files?.[0] ?? null;
     if (!selectedFile) return;
@@ -1035,7 +1055,7 @@ function AssetForm({
               className="sr-only"
               type="file"
               accept={accept}
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              onChange={handleFileChange}
             />
           </label>
           {file ? (

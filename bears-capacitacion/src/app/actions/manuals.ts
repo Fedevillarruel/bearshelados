@@ -3,10 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/roles";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { databaseUuid } from "@/lib/validations/ids";
 
 const identifier = databaseUuid;
+const maxPrivateUploadBytes = 53_687_091_200;
 const manualRoles = z.enum(["admin", "franquiciado"]);
 const supportedFileTypes = z.enum([
   "application/pdf",
@@ -46,16 +48,32 @@ function refreshManualPaths() {
   revalidatePath("/franquicia/manuales");
 }
 
+async function ensureManualUploadLimit() {
+  try {
+    const { error } = await createAdminClient().storage.updateBucket("manuals", {
+      public: false,
+      fileSizeLimit: maxPrivateUploadBytes,
+    });
+    return error ? { error: error.message } : { data: true };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "No pudimos configurar el límite del bucket.",
+    };
+  }
+}
+
 export async function createManualUploadUrl(input: unknown) {
   const viewer = await requireRole(["admin"]);
   const parsed = manualUploadSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "El archivo seleccionado no es válido." };
   const fileName = parsed.data.fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
   const path = `manuals/${viewer.id}/${crypto.randomUUID()}-${fileName}`;
-  const supabase = await createClient();
-  const { data, error } = await supabase.storage.from("manuals").createSignedUploadUrl(path);
-  if (error || !data) return { error: "No pudimos preparar la subida del manual." };
-  return { data: { path: data.path, token: data.token } };
+  const bucket = await ensureManualUploadLimit();
+  if ("error" in bucket && bucket.error) return { error: `No pudimos configurar el bucket de manuales: ${bucket.error}` };
+  return { data: { path, token: "" } };
 }
 
 export async function saveManual(input: unknown) {
