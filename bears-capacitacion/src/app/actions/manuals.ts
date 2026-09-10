@@ -9,6 +9,7 @@ import { databaseUuid } from "@/lib/validations/ids";
 
 const identifier = databaseUuid;
 const maxPrivateUploadBytes = 53_687_091_200;
+const freePlanUploadLimitBytes = 50 * 1024 * 1024;
 const manualRoles = z.enum(["admin", "franquiciado"]);
 const supportedFileTypes = z.enum([
   "application/pdf",
@@ -48,13 +49,23 @@ function refreshManualPaths() {
   revalidatePath("/franquicia/manuales");
 }
 
-async function ensureManualUploadLimit() {
+function formatMegabytes(sizeBytes?: number) {
+  return sizeBytes ? `${Math.ceil(sizeBytes / (1024 * 1024))} MB` : "este tamaño";
+}
+
+async function ensureManualUploadLimit(fileSize?: number) {
   try {
     const { error } = await createAdminClient().storage.updateBucket("manuals", {
       public: false,
       fileSizeLimit: maxPrivateUploadBytes,
     });
-    return error ? { error: error.message } : { data: true };
+    if (!error) return { data: true };
+    if (/maximum size|exceeded/i.test(error.message)) {
+      return {
+        error: `El proyecto de Supabase no permite subir archivos de ${formatMegabytes(fileSize)}. El plan Free admite hasta ${formatMegabytes(freePlanUploadLimitBytes)} por archivo; para archivos más pesados necesitás subir el proyecto a Pro/Team o comprimir el archivo.`,
+      };
+    }
+    return { error: error.message };
   } catch (error) {
     return {
       error:
@@ -71,8 +82,8 @@ export async function createManualUploadUrl(input: unknown) {
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "El archivo seleccionado no es válido." };
   const fileName = parsed.data.fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
   const path = `manuals/${viewer.id}/${crypto.randomUUID()}-${fileName}`;
-  const bucket = await ensureManualUploadLimit();
-  if ("error" in bucket && bucket.error) return { error: `No pudimos configurar el bucket de manuales: ${bucket.error}` };
+  const bucket = await ensureManualUploadLimit(parsed.data.fileSize);
+  if ("error" in bucket && bucket.error) return { error: bucket.error };
   return { data: { path, token: "" } };
 }
 
