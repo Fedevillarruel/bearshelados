@@ -25,6 +25,11 @@ export async function middleware(request: NextRequest) {
   );
 
   const pathname = request.nextUrl.pathname;
+  const redirectWithSession = (url: URL) => {
+    const redirected = NextResponse.redirect(url);
+    response.cookies.getAll().forEach((cookie) => redirected.cookies.set(cookie));
+    return redirected;
+  };
   const isProtected = protectedRoutes.some((route) => pathname.startsWith(route));
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -32,7 +37,7 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+    return redirectWithSession(url);
   }
 
   if (!user) return response;
@@ -46,13 +51,13 @@ export async function middleware(request: NextRequest) {
   if (!profile?.is_active) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    return NextResponse.redirect(url);
+    return redirectWithSession(url);
   }
 
   if (profile.must_change_password && pathname !== "/cambiar-contrasena" && pathname !== "/auth/callback") {
     const url = request.nextUrl.clone();
     url.pathname = "/cambiar-contrasena";
-    return NextResponse.redirect(url);
+    return redirectWithSession(url);
   }
 
   const invalidRoute =
@@ -64,7 +69,7 @@ export async function middleware(request: NextRequest) {
   if (invalidRoute) {
     const url = request.nextUrl.clone();
     url.pathname = profile.role === "admin" ? "/admin/dashboard" : profile.role === "franquiciado" ? "/franquicia/dashboard" : "/cursos/mis-cursos";
-    return NextResponse.redirect(url);
+    return redirectWithSession(url);
   }
 
   return response;

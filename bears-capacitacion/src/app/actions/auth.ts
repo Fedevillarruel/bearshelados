@@ -118,11 +118,35 @@ export async function changePassword(_: ActionState, formData: FormData): Promis
   const viewer = await getViewer();
   if (!viewer) return { error: "Tu sesión venció. Volvé a ingresar." };
 
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (error) {
+    return {
+      error: error instanceof Error
+        ? error.message
+        : "No pudimos preparar el cambio de contraseña.",
+    };
+  }
   const supabase = await createClient();
   const { error } = await supabase.auth.updateUser({ password: password.data });
-  if (error) return { error: "No pudimos actualizar la contraseña. Intentá de nuevo." };
+  if (error) return {
+    error: error.code === "same_password"
+      ? "Elegí una contraseña diferente de la actual."
+      : "No pudimos actualizar la contraseña. Intentá de nuevo.",
+  };
 
-  await supabase.from("profiles").update({ must_change_password: false }).eq("id", viewer.id);
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
+    .update({ must_change_password: false })
+    .eq("id", viewer.id)
+    .select("id, must_change_password")
+    .single();
+  if (profileError || !profile || profile.must_change_password !== false) {
+    return {
+      error: "La contraseña se actualizó, pero no pudimos habilitar el acceso a la plataforma. No vuelvas a usar la contraseña anterior. Intentá con otra contraseña nueva o contactá a administración.",
+    };
+  }
   redirect(defaultRouteForRole(viewer.role));
 }
 

@@ -89,6 +89,12 @@ openssl rand -base64 48  # CRON_SECRET
 
 `SITE_URL` debe ser el origen canónico sin ruta. En desarrollo admite `http://localhost:3000`; en producción requiere HTTPS.
 
+### Cambio obligatorio de contraseña
+
+La plataforma actualiza la contraseña con la sesión autenticada del usuario. Solo después de que Supabase Auth confirma el cambio, el servidor usa `SUPABASE_SERVICE_ROLE_KEY` para quitar `must_change_password` exclusivamente del perfil de esa sesión y verifica que se guardó antes de redirigir. No es necesario ampliar las políticas RLS de perfiles para permitir que los usuarios editen sus propios permisos.
+
+Si Auth cambia la contraseña pero falla la confirmación del perfil, el formulario informa el resultado parcial y no redirige: la contraseña anterior ya no sirve. Se puede reintentar con otra contraseña nueva o pedir asistencia a administración. Las redirecciones del middleware conservan las cookies actualizadas de sesión.
+
 ## Storage y acceso
 
 - `course-media` y `manuals` son privados y se entregan con URLs firmadas de corta duración.
@@ -150,6 +156,7 @@ http://localhost:3000/auth/callback
 ```bash
 npm run build
 npm run test:youtube
+npm run test:auth
 ```
 
 La aplicación no muestra información operativa cuando Supabase no está configurado. Los flujos de usuarios, cursos, manuales, reportes y Tiendanube requieren una configuración válida de Supabase.
