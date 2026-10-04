@@ -38,6 +38,7 @@ import {
 } from "@/lib/course-asset-files";
 import { uploadPrivateFile } from "@/lib/supabase/resumable-upload";
 import { YouTubeLinkHelp } from "@/components/admin/youtube-link-help";
+import { VideoDurationInput } from "@/components/admin/video-duration-input";
 
 type AssetType = CourseAssetType;
 
@@ -520,21 +521,12 @@ function AssetEditor({
 
       {type === "video" ? (
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <label
-            className="grid gap-2 text-sm font-medium"
-            htmlFor="content-duration"
-          >
-            Duración (segundos)
-            <input
-              id="content-duration"
-              className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade"
-              type="number"
-              min="1"
-              value={durationSeconds}
-              onChange={(event) => setDurationSeconds(event.target.value)}
-              required
-            />
-          </label>
+          <VideoDurationInput
+            id="content-duration"
+            value={durationSeconds}
+            onChange={setDurationSeconds}
+            youtubeUrl={pendingFile || storagePath ? "" : source}
+          />
           {location !== "course" ? (
             <label className="flex h-11 items-center gap-3 text-sm">
               <input

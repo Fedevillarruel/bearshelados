@@ -109,12 +109,18 @@ Si Auth cambia la contraseña pero falla la confirmación del perfil, el formula
 
 1. Creá un canal administrado por Bears y subí los videos como **No listado**, con **Permitir inserción** habilitado. No listado no es privado: cualquiera con el enlace puede verlo.
 2. En el módulo, agregá contenido de tipo **Video** y pegá el enlace en **URL de YouTube o video externo**. No selecciones un archivo si querés usar YouTube.
-3. Indicá la duración real en segundos (por ejemplo, 5 minutos = 300). Se utiliza para el porcentaje de avance, los requisitos de finalización y la duración del curso.
+3. La vista previa intenta obtener la duración directamente del reproductor de YouTube, sin una clave de API. Si YouTube no la informa, el video tiene restricciones o es un directo en vivo, aparece un aviso y podés ingresarla manualmente en **Horas, Minutos y Segundos**. Una edición manual durante la consulta tiene prioridad sobre el resultado automático.
 4. Si corresponde, marcá el video como principal del módulo y guardá.
 
 Se admiten enlaces de reproducción (`watch?v=`), enlaces cortos (`youtu.be`), Shorts, directos y enlaces de inserción. Se guarda una URL canónica del video; los enlaces de canales o listas sin video se rechazan. El alumno reproduce dentro de la plataforma, retoma su posición y registra los rangos vistos. Saltar a un punto del video no acredita el tramo omitido; ver el video fuera de la plataforma no registra avance.
 
 Si YouTube no puede cargar o el video es privado, eliminado o tiene la inserción bloqueada, el reproductor informa el problema y ofrece abrirlo en YouTube. No se cambia silenciosamente a un reproductor sin seguimiento. Las restricciones de edad, región y las políticas de YouTube también pueden impedir la reproducción integrada.
+
+### Duración de los videos
+
+Todos los formularios de carga y edición permiten ingresar horas, minutos y segundos. La aplicación sigue guardando `duration_seconds`, sin migraciones ni cambios en el cálculo de avance. Por ejemplo, 1 hora, 15 minutos y 30 segundos se guarda como 4530 segundos. La duración debe ser mayor a cero para guardar un video.
+
+Los archivos locales conservan la detección de duración por metadatos. Los enlaces de YouTube muestran una vista previa y consultan su duración automáticamente; **Volver a consultar YouTube** permite reintentar. El resultado se puede corregir manualmente. La vista previa del administrador no registra progreso de empleados. La duración real se utiliza para el porcentaje de avance, los requisitos de finalización y la duración del curso.
 
 ### Volver a ver videos
 
@@ -162,6 +168,7 @@ npm run build
 npm run test:youtube
 npm run test:auth
 npm run test:video
+npm run test:duration
 ```
 
 La aplicación no muestra información operativa cuando Supabase no está configurado. Los flujos de usuarios, cursos, manuales, reportes y Tiendanube requieren una configuración válida de Supabase.

@@ -50,6 +50,7 @@ import {
 } from "@/lib/course-asset-files";
 import { uploadPrivateFile } from "@/lib/supabase/resumable-upload";
 import { YouTubeLinkHelp } from "@/components/admin/youtube-link-help";
+import { VideoDurationInput } from "@/components/admin/video-duration-input";
 
 type AssetType = CourseAssetType;
 
@@ -681,25 +682,12 @@ function ModuleForm({
                   ) : null}
                   {draft.type === "video" ? (
                     <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                      <label
-                        className="grid gap-2 text-sm font-medium"
-                        htmlFor={`draft-duration-${draft.id}`}
-                      >
-                        Duración (segundos)
-                        <input
-                          id={`draft-duration-${draft.id}`}
-                          className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade"
-                          type="number"
-                          min="1"
-                          value={draft.durationSeconds}
-                          onChange={(event) =>
-                            updateDraft(draft.id, {
-                              durationSeconds: event.target.value,
-                            })
-                          }
-                          required
-                        />
-                      </label>
+                      <VideoDurationInput
+                        id={`draft-duration-${draft.id}`}
+                        value={draft.durationSeconds}
+                        onChange={(value) => updateDraft(draft.id, { durationSeconds: value })}
+                        youtubeUrl={draft.file ? "" : draft.source}
+                      />
                       <label className="flex h-11 items-center gap-3 text-sm">
                         <input
                           className="size-4 accent-jade"
@@ -1076,21 +1064,12 @@ function AssetForm({
       ) : null}
       {type === "video" ? (
         <div className="grid gap-4">
-          <label
-            className="grid gap-2 text-sm font-medium"
-            htmlFor="asset-duration"
-          >
-            Duración (segundos)
-            <input
-              id="asset-duration"
-              className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade"
-              type="number"
-              min="1"
-              value={durationSeconds}
-              onChange={(event) => setDurationSeconds(event.target.value)}
-              required
-            />
-          </label>
+          <VideoDurationInput
+            id="asset-duration"
+            value={durationSeconds}
+            onChange={setDurationSeconds}
+            youtubeUrl={file || storagePath ? "" : source}
+          />
           <section className="border border-dashed border-line p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>

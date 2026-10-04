@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { databaseUuid } from "@/lib/validations/ids";
 import { getYouTubeVideoId, isYouTubeUrl } from "@/lib/youtube";
+import { maxDurationSeconds } from "@/lib/duration";
 
 const identifier = databaseUuid;
 const nullableText = z.string().trim().nullable();
@@ -122,7 +123,7 @@ const assetSchema = z
       .max(512)
       .nullable()
       .optional(),
-    durationSeconds: z.number().int().nonnegative(),
+    durationSeconds: z.number().int().nonnegative().max(maxDurationSeconds, "La duración supera el máximo admitido."),
     sizeBytes: z.number().int().nonnegative().nullable().optional(),
     orderIndex: z.number().int().min(0).max(10_000),
   })

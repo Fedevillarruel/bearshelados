@@ -22,6 +22,7 @@ function loadModule(relativePath, mocks = {}, globals = {}) {
     exports: loaded.exports,
     URL,
     URLSearchParams,
+    Error,
     require: (name) => Object.hasOwn(mocks, name) ? mocks[name] : requireDependency(name),
     ...globals,
   }, { filename: relativePath });
@@ -83,6 +84,7 @@ function courseActions() {
     "@/lib/supabase/server": { createClient: async () => db },
     "@/lib/validations/ids": { databaseUuid: z.string().guid() },
     "@/lib/youtube": youtube,
+    "@/lib/duration": loadModule("src/lib/duration.ts"),
   });
   return { actions, saved, refreshed };
 }
@@ -123,6 +125,16 @@ test("requires a real positive duration and preserves other video URLs", async (
   assert.equal(saved.length, 0);
   await actions.saveAsset(videoInput("https://example.com/video.mp4"));
   assert.equal(saved[0].payload.url, "https://example.com/video.mp4");
+});
+
+test("persists hours/minutes conversion as seconds and rejects database overflow", async () => {
+  const { actions, saved } = courseActions();
+  const response = await actions.saveAsset({ ...videoInput(`https://youtu.be/${id}`), durationSeconds: 4530 });
+  assert.equal(response.data.id, assetId);
+  assert.equal(saved[0].payload.duration_seconds, 4530);
+  const overflow = await actions.saveAsset({ ...videoInput(`https://youtu.be/${id}`), durationSeconds: 2147483648 });
+  assert.match(overflow.error, /máximo admitido/);
+  assert.equal(saved.length, 1);
 });
 
 async function trackingHarness(options = {}, apiAvailable = true) {
@@ -181,6 +193,7 @@ async function trackingHarness(options = {}, apiAvailable = true) {
     clearTimeout: (key) => timeouts.delete(key),
   };
   const hook = loadModule("src/hooks/use-youtube-video-tracking.ts", {
+    "@/lib/youtube-iframe-api": loadModule("src/lib/youtube-iframe-api.ts", {}, { window, document }),
     react: {
       useRef: (value) => ({ current: value }),
       useState: (value) => {
