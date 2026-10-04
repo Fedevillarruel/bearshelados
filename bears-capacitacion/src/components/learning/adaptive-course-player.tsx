@@ -18,7 +18,7 @@ import {
   PlayCircle,
   Video,
 } from "lucide-react";
-import { useVideoTracking } from "@/hooks/use-video-tracking";
+import { NativeVideo } from "@/components/learning/native-video";
 import { YouTubeVideo } from "@/components/learning/youtube-video";
 import type { EmployeeAsset, EmployeeCourseModule } from "@/lib/platform/employee";
 import { getYouTubeVideoId, isYouTubeUrl } from "@/lib/youtube";
@@ -64,10 +64,6 @@ function resourceIcon(type: EmployeeAsset["type"]) {
   return BookOpen;
 }
 
-function videoMimeType(url: string) {
-  return url.split("?")[0]?.toLowerCase().endsWith(".webm") ? "video/webm" : "video/mp4";
-}
-
 function canPreviewPdf(url: string) {
   try {
     const hostname = new URL(url).hostname;
@@ -81,35 +77,11 @@ function UnsupportedYouTubeVideo({ asset }: { asset: EmployeeAsset }) {
   return <section className="overflow-hidden bg-ink text-white"><a className="flex aspect-video flex-col items-center justify-center gap-3 px-5 text-center text-sm font-medium hover:underline" href={asset.url} target="_blank" rel="noreferrer"><ExternalLink className="size-5" aria-hidden="true" /><span>Este enlace de YouTube no identifica un video reproducible.</span><span>Abrir en YouTube</span></a><div className="flex items-center justify-between gap-4 border-t border-white/15 px-4 py-3 text-sm text-white/80"><span className="flex min-w-0 items-center gap-2"><PlayCircle className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">{asset.title}</span></span><span className="font-tabular shrink-0">{formatMinutes(asset.duration_seconds)}</span></div></section>;
 }
 
-function TrackedNativeVideo({ asset, onCompleted }: { asset: EmployeeAsset; onCompleted: () => void }) {
-  const { videoRef } = useVideoTracking({
-    assetId: asset.id,
-    durationSeconds: asset.duration_seconds,
-    initialPosition: asset.progress?.last_position ?? 0,
-    initialRanges: asset.progress?.watched_ranges ?? [],
-    initiallyCompleted: asset.isCompleted,
-    onCompleted,
-  });
-
-  return (
-    <section className="overflow-hidden bg-ink">
-      <video ref={videoRef} className="aspect-video w-full" controls preload="metadata" onLoadedMetadata={() => { if (videoRef.current && asset.progress?.last_position) videoRef.current.currentTime = asset.progress.last_position; }}>
-        <source src={asset.url} type={videoMimeType(asset.url)} />
-        Tu navegador no puede reproducir este video.
-      </video>
-      <div className="flex items-center justify-between gap-4 border-t border-white/15 px-4 py-3 text-sm text-white/80">
-        <span className="flex min-w-0 items-center gap-2"><PlayCircle className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">{asset.title}</span></span>
-        <span className="font-tabular shrink-0">{asset.isCompleted ? "Completado" : formatMinutes(asset.duration_seconds)}</span>
-      </div>
-    </section>
-  );
-}
-
 function TrackedVideo({ asset, onCompleted }: { asset: EmployeeAsset; onCompleted: () => void }) {
   const youTubeVideoId = getYouTubeVideoId(asset.url);
   if (youTubeVideoId) return <YouTubeVideo key={asset.id} asset={asset} videoId={youTubeVideoId} onCompleted={onCompleted} />;
   if (isYouTubeUrl(asset.url)) return <UnsupportedYouTubeVideo asset={asset} />;
-  return <TrackedNativeVideo asset={asset} onCompleted={onCompleted} />;
+  return <NativeVideo key={asset.id} asset={asset} onCompleted={onCompleted} />;
 }
 
 function ResourceProgressRecorder({ asset, onRecorded }: { asset: EmployeeAsset | undefined; onRecorded: () => void }) {

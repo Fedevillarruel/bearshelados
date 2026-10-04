@@ -10,19 +10,14 @@ import {
   ExternalLink,
   FileText,
   ImageIcon,
-  PlayCircle,
 } from "lucide-react";
-import { useVideoTracking } from "@/hooks/use-video-tracking";
+import { NativeVideo } from "@/components/learning/native-video";
 import { YouTubeVideo } from "@/components/learning/youtube-video";
 import { getYouTubeVideoId, isYouTubeUrl } from "@/lib/youtube";
 import type {
   EmployeeAsset,
   EmployeeCourseModule,
 } from "@/lib/platform/employee";
-
-function formatMinutes(seconds: number) {
-  return `${Math.max(1, Math.ceil(seconds / 60))} min`;
-}
 
 function contentText(value: string) {
   return value
@@ -31,51 +26,12 @@ function contentText(value: string) {
     .trim();
 }
 
-function TrackedVideo({ asset }: { asset: EmployeeAsset }) {
-  const { videoRef } = useVideoTracking({
-    assetId: asset.id,
-    durationSeconds: asset.duration_seconds,
-    initialPosition: asset.progress?.last_position ?? 0,
-    initialRanges: asset.progress?.watched_ranges ?? [],
-  });
-
-  return (
-    <section className="overflow-hidden border border-line bg-ink">
-      <video
-        ref={videoRef}
-        className="aspect-video w-full"
-        controls
-        preload="metadata"
-        poster={asset.video_poster_url ?? undefined}
-        onLoadedMetadata={() => {
-          if (videoRef.current && asset.progress?.last_position)
-            videoRef.current.currentTime = asset.progress.last_position;
-        }}
-      >
-        <source src={asset.url} type="video/mp4" />
-        Tu navegador no puede reproducir este video.
-      </video>
-      <div className="flex items-center justify-between gap-4 border-t border-white/15 px-4 py-3 text-sm text-white/75">
-        <span className="flex items-center gap-2">
-          <PlayCircle className="size-4" aria-hidden="true" />
-          {asset.title}
-        </span>
-        <span className="font-tabular whitespace-nowrap">
-          {asset.progress?.completed
-            ? "Completado"
-            : formatMinutes(asset.duration_seconds)}
-        </span>
-      </div>
-    </section>
-  );
-}
-
 function AssetContent({ asset }: { asset: EmployeeAsset }) {
   if (asset.type === "video") {
     const videoId = getYouTubeVideoId(asset.url);
     if (videoId) return <YouTubeVideo key={asset.id} asset={asset} videoId={videoId} />;
     if (isYouTubeUrl(asset.url)) return <p role="alert">Este enlace de YouTube no identifica un video reproducible.</p>;
-    return <TrackedVideo asset={asset} />;
+    return <NativeVideo key={asset.id} asset={asset} />;
   }
   if (asset.type === "pdf")
     return (

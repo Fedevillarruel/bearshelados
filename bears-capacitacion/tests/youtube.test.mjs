@@ -169,6 +169,7 @@ async function trackingHarness(options = {}, apiAvailable = true) {
     getPlaybackRate() { return 1; }
     getIframe() { return this.iframe; }
     seekTo(position) { this.position = position; }
+    playVideo() { this.playRequested = true; }
     destroy() { this.destroyed = true; }
   }
   const window = {
@@ -210,6 +211,7 @@ async function trackingHarness(options = {}, apiAvailable = true) {
     ready: () => player.config.events.onReady(),
     state: (value) => { player.state = value; player.config.events.onStateChange({ data: value }); },
     fail: (code) => player.config.events.onError({ data: code }),
+    replay: result.replayVideo,
     tick: async (position, elapsed = 1000) => {
       now += elapsed;
       player.position = position;
@@ -259,6 +261,24 @@ test("records viewing, excludes a seek, and only reports server-confirmed comple
   await h.flush();
   await h.flush();
   assert.equal(h.completedCalls(), 1);
+  await h.cleanup();
+});
+
+test("completed YouTube videos start at zero and can replay without clearing watched ranges", async () => {
+  const h = await trackingHarness({ initiallyCompleted: true, initialPosition: 60, initialRanges: [[0, 60]] });
+  h.ready();
+  assert.equal(h.player.position, 0);
+  h.player.position = 60;
+  h.replay();
+  assert.equal(h.player.position, 0);
+  assert.equal(h.player.playRequested, true);
+  h.state(1);
+  await h.tick(1);
+  await h.flush();
+  assert.deepEqual(h.saved.at(-1).watchedRanges, [[0, 60]]);
+  h.setCompleted();
+  await h.flush();
+  assert.equal(h.completedCalls(), 0);
   await h.cleanup();
 });
 

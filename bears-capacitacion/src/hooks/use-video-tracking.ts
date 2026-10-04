@@ -28,6 +28,8 @@ export function useVideoTracking({
   const pendingRef = useRef(false);
   const completionReportedRef = useRef(initiallyCompleted);
   const onCompletedRef = useRef(onCompleted);
+  const resumeRef = useRef({ initialPosition, initiallyCompleted });
+  resumeRef.current = { initialPosition, initiallyCompleted };
 
   useEffect(() => {
     onCompletedRef.current = onCompleted;
@@ -37,6 +39,14 @@ export function useVideoTracking({
     const video = videoRef.current;
     if (!video) return;
 
+    const onLoadedMetadata = () => {
+      const { initialPosition, initiallyCompleted } = resumeRef.current;
+      const position = initiallyCompleted || initialPosition >= video.duration
+        ? 0
+        : initialPosition;
+      video.currentTime = position;
+      lastObservedRef.current = position;
+    };
     const recordProgress = () => {
       if (!playingRef.current || document.visibilityState !== "visible") return;
       const currentPosition = video.currentTime;
@@ -101,6 +111,8 @@ export function useVideoTracking({
       void flush();
     }, 15_000);
 
+    video.addEventListener("loadedmetadata", onLoadedMetadata);
+    if (video.readyState >= 1) onLoadedMetadata();
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
     video.addEventListener("seeking", onSeeking);
@@ -111,6 +123,7 @@ export function useVideoTracking({
       window.clearInterval(heartbeat);
       recordProgress();
       void flush();
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("seeking", onSeeking);

@@ -116,6 +116,10 @@ Se admiten enlaces de reproducción (`watch?v=`), enlaces cortos (`youtu.be`), S
 
 Si YouTube no puede cargar o el video es privado, eliminado o tiene la inserción bloqueada, el reproductor informa el problema y ofrece abrirlo en YouTube. No se cambia silenciosamente a un reproductor sin seguimiento. Las restricciones de edad, región y las políticas de YouTube también pueden impedir la reproducción integrada.
 
+### Volver a ver videos
+
+Completar un video o módulo no bloquea su reproducción. Los videos completados se abren desde el inicio; los pendientes retoman su posición guardada. Tanto YouTube como los archivos de Storage ofrecen **Volver a ver**, que reproduce desde cero sin borrar los rangos vistos ni el estado completado. Si un archivo no carga, el reproductor informa el problema y permite **Recargar video** para solicitar una URL firmada actualizada.
+
 ## Tiendanube
 
 La integración es una capacidad exclusiva de superadministración. Solicita exactamente los scopes `read_orders` y `read_products`; no solicita acceso a clientes ni permisos de escritura.
@@ -157,6 +161,7 @@ http://localhost:3000/auth/callback
 npm run build
 npm run test:youtube
 npm run test:auth
+npm run test:video
 ```
 
 La aplicación no muestra información operativa cuando Supabase no está configurado. Los flujos de usuarios, cursos, manuales, reportes y Tiendanube requieren una configuración válida de Supabase.

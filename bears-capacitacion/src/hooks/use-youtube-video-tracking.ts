@@ -11,6 +11,7 @@ type YouTubePlayer = {
   getPlayerState: () => number;
   getPlaybackRate: () => number;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
+  playVideo: () => void;
 };
 
 type YouTubeApi = {
@@ -93,6 +94,7 @@ export function useYouTubeVideoTracking({
   onCompleted,
 }: YouTubeVideoTrackingOptions) {
   const playerElementRef = useRef<HTMLDivElement>(null);
+  const replayRef = useRef<(() => void) | null>(null);
   const onCompletedRef = useRef(onCompleted);
   const initialProgressRef = useRef({ initialPosition, initialRanges, initiallyCompleted });
   initialProgressRef.current = { initialPosition, initialRanges, initiallyCompleted };
@@ -121,6 +123,12 @@ export function useYouTubeVideoTracking({
     container.appendChild(target);
     setIsReady(false);
     setError(null);
+    replayRef.current = () => {
+      player?.seekTo(0, true);
+      lastObserved = 0;
+      lastObservedAt = Date.now();
+      player?.playVideo();
+    };
 
     const currentPosition = () => {
       if (!playerReady) return null;
@@ -221,6 +229,7 @@ export function useYouTubeVideoTracking({
             if (disposed) return;
             window.clearTimeout(unavailableTimeout);
             pauseTracking();
+            replayRef.current = null;
             setError(event.data === 100
               ? "El video fue eliminado o es privado. Configuralo como No listado en YouTube."
               : [101, 150].includes(event.data)
@@ -237,6 +246,7 @@ export function useYouTubeVideoTracking({
 
     return () => {
       disposed = true;
+      replayRef.current = null;
       window.clearInterval(sampling);
       window.clearInterval(heartbeat);
       window.clearTimeout(unavailableTimeout);
@@ -248,5 +258,5 @@ export function useYouTubeVideoTracking({
     };
   }, [assetId, durationSeconds, videoId]);
 
-  return { playerElementRef, isReady, error };
+  return { playerElementRef, isReady, error, replayVideo: () => replayRef.current?.() };
 }
