@@ -8,6 +8,8 @@ type YouTubePlayer = {
   destroy: () => void;
   getIframe: () => HTMLIFrameElement;
   getCurrentTime: () => number;
+  getPlayerState: () => number;
+  getPlaybackRate: () => number;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
 };
 
@@ -21,7 +23,7 @@ type YouTubeApi = {
     events: {
       onReady: () => void;
       onStateChange: (event: { data: number }) => void;
-      onError: () => void;
+      onError: (event: { data: number }) => void;
     };
   }) => YouTubePlayer;
 };
@@ -64,6 +66,7 @@ function loadYouTubeIframeApi() {
     document.head.appendChild(script);
   }).catch((error: unknown) => {
     youTubeApiPromise = null;
+    document.getElementById("youtube-iframe-api")?.remove();
     throw error;
   });
 
@@ -90,15 +93,11 @@ export function useYouTubeVideoTracking({
   onCompleted,
 }: YouTubeVideoTrackingOptions) {
   const playerElementRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<YouTubePlayer | null>(null);
-  const rangesRef = useRef<WatchedRange[]>(initialRanges);
-  const lastObservedRef = useRef(initialPosition);
-  const playingRef = useRef(false);
-  const pendingRef = useRef(false);
-  const completionReportedRef = useRef(initiallyCompleted);
   const onCompletedRef = useRef(onCompleted);
+  const initialProgressRef = useRef({ initialPosition, initialRanges, initiallyCompleted });
+  initialProgressRef.current = { initialPosition, initialRanges, initiallyCompleted };
   const [isReady, setIsReady] = useState(false);
-  const [isUnavailable, setIsUnavailable] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     onCompletedRef.current = onCompleted;
@@ -106,65 +105,82 @@ export function useYouTubeVideoTracking({
 
   useEffect(() => {
     let player: YouTubePlayer | null = null;
+    let playerReady = false;
     let disposed = false;
+    const { initialPosition, initialRanges, initiallyCompleted } = initialProgressRef.current;
+    let ranges = initialRanges;
+    let lastObserved = initialPosition;
+    let lastObservedAt = Date.now();
+    let playing = false;
+    let pending = false;
+    let completionReported = initiallyCompleted;
+    const container = playerElementRef.current;
+    if (!container) return;
+    // YouTube replaces its target with an iframe; React must retain ownership of the container.
+    const target = document.createElement("div");
+    container.appendChild(target);
     setIsReady(false);
-    setIsUnavailable(false);
+    setError(null);
 
     const currentPosition = () => {
-      const position = playerRef.current?.getCurrentTime();
+      if (!playerReady) return null;
+      const position = player?.getCurrentTime();
       return typeof position === "number" && Number.isFinite(position) ? position : null;
     };
     const recordProgress = () => {
-      if (!playingRef.current || document.visibilityState !== "visible") return;
+      if (!playing || document.visibilityState !== "visible") return;
       const position = currentPosition();
       if (position === null) return;
-      const elapsed = position - lastObservedRef.current;
-      if (elapsed > 0 && elapsed <= 20) {
-        rangesRef.current = mergeRanges([...rangesRef.current, [lastObservedRef.current, position]]);
+      const elapsed = position - lastObserved;
+      const now = Date.now();
+      const maxElapsed = Math.min(20, ((now - lastObservedAt) / 1000) * (player?.getPlaybackRate() ?? 1) + 1);
+      if (elapsed > 0 && elapsed <= maxElapsed) {
+        ranges = mergeRanges([...ranges, [lastObserved, position]]);
       }
-      lastObservedRef.current = position;
+      lastObserved = position;
+      lastObservedAt = now;
     };
     const flush = async () => {
-      if (pendingRef.current || rangesRef.current.length === 0) return;
-      pendingRef.current = true;
+      if (pending || ranges.length === 0) return;
+      pending = true;
       try {
         const completed = await saveVideoProgress({
           assetId,
-          lastPosition: Math.floor(currentPosition() ?? lastObservedRef.current),
-          watchedRanges: rangesRef.current,
+          lastPosition: Math.floor(currentPosition() ?? lastObserved),
+          watchedRanges: ranges,
         });
-        if (completed && !completionReportedRef.current) {
-          completionReportedRef.current = true;
+        if (completed && !completionReported && !disposed) {
+          completionReported = true;
           onCompletedRef.current?.();
         }
       } finally {
-        pendingRef.current = false;
+        pending = false;
       }
     };
     const pauseTracking = () => {
       recordProgress();
-      playingRef.current = false;
+      playing = false;
       void flush();
     };
     const onVisibilityChange = () => {
       if (document.visibilityState !== "visible") pauseTracking();
       else {
         const position = currentPosition();
-        if (position !== null) lastObservedRef.current = position;
+        if (position !== null) lastObserved = position;
+        lastObservedAt = Date.now();
+        playing = playerReady && player?.getPlayerState() === 1;
       }
     };
-    const heartbeat = window.setInterval(() => {
-      recordProgress();
-      void flush();
-    }, 15_000);
+    const sampling = window.setInterval(recordProgress, 1_000);
+    const heartbeat = window.setInterval(() => { void flush(); }, 15_000);
     const unavailableTimeout = window.setTimeout(() => {
-      if (!disposed) setIsUnavailable(true);
-    }, 10_000);
+      if (!disposed) setError("YouTube está tardando en cargar. Revisá tu conexión o si el navegador bloquea YouTube.");
+    }, 20_000);
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     void loadYouTubeIframeApi().then((api) => {
-      if (disposed || !playerElementRef.current) return;
-      player = new api.Player(playerElementRef.current, {
+      if (disposed) return;
+      player = new api.Player(target, {
         videoId,
         host: "https://www.youtube-nocookie.com",
         width: "100%",
@@ -179,9 +195,11 @@ export function useYouTubeVideoTracking({
         },
         events: {
           onReady: () => {
-            playerRef.current = player;
+            if (disposed) return;
+            playerReady = true;
             window.clearTimeout(unavailableTimeout);
             setIsReady(true);
+            setError(null);
             const iframe = player?.getIframe();
             iframe?.setAttribute("title", "Video de YouTube");
             iframe?.setAttribute("allow", "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share");
@@ -190,44 +208,45 @@ export function useYouTubeVideoTracking({
             if (initialPosition > 0 && !initiallyCompleted) player?.seekTo(initialPosition, true);
           },
           onStateChange: (event) => {
+            if (disposed) return;
             if (event.data === 1) {
-              playingRef.current = true;
+              playing = true;
               const position = currentPosition();
-              if (position !== null) lastObservedRef.current = position;
+              if (position !== null) lastObserved = position;
+              lastObservedAt = Date.now();
               void startVideoProgress(assetId);
-            } else if (event.data === 2) {
-              pauseTracking();
-            } else if (event.data === 0) {
-              recordProgress();
-              rangesRef.current = mergeRanges([...rangesRef.current, [Math.max(0, durationSeconds - 1), durationSeconds]]);
-              playingRef.current = false;
-              void flush();
-            }
+            } else pauseTracking();
           },
-          onError: () => {
+          onError: (event) => {
+            if (disposed) return;
             window.clearTimeout(unavailableTimeout);
-            playerRef.current = null;
-            player?.destroy();
-            setIsUnavailable(true);
+            pauseTracking();
+            setError(event.data === 100
+              ? "El video fue eliminado o es privado. Configuralo como No listado en YouTube."
+              : [101, 150].includes(event.data)
+                ? "Este video no permite reproducción integrada. Habilitá Permitir inserción en YouTube."
+                : "No pudimos reproducir este video de YouTube. Revisá el enlace, los permisos y las restricciones del video.");
           },
         },
       });
-    }).catch(() => {
+    }).catch((error: unknown) => {
+      if (disposed) return;
       window.clearTimeout(unavailableTimeout);
-      setIsUnavailable(true);
+      setError(error instanceof Error ? error.message : "No pudimos cargar el reproductor de YouTube.");
     });
 
     return () => {
       disposed = true;
+      window.clearInterval(sampling);
       window.clearInterval(heartbeat);
       window.clearTimeout(unavailableTimeout);
       recordProgress();
       void flush();
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      playerRef.current = null;
       player?.destroy();
+      container.replaceChildren();
     };
-  }, [assetId, durationSeconds, initialPosition, initiallyCompleted, videoId]);
+  }, [assetId, durationSeconds, videoId]);
 
-  return { playerElementRef, isReady, isUnavailable };
+  return { playerElementRef, isReady, error };
 }

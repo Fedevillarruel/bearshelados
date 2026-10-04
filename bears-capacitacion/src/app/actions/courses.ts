@@ -6,11 +6,11 @@ import { requireRole } from "@/lib/auth/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { databaseUuid } from "@/lib/validations/ids";
+import { getYouTubeVideoId, isYouTubeUrl } from "@/lib/youtube";
 
 const identifier = databaseUuid;
 const nullableText = z.string().trim().nullable();
 const maxPrivateUploadBytes = 53_687_091_200;
-const freePlanUploadLimitBytes = 50 * 1024 * 1024;
 const assetTypes = [
   "video",
   "pdf",
@@ -142,6 +142,18 @@ const assetSchema = z
         code: z.ZodIssueCode.custom,
         path: ["durationSeconds"],
         message: "El video debe informar una duración válida.",
+      });
+    }
+    if (
+      value.type === "video" &&
+      !value.storagePath &&
+      isYouTubeUrl(value.url) &&
+      !getYouTubeVideoId(value.url)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["url"],
+        message: "Pegá el enlace de un video de YouTube, no de un canal o una lista.",
       });
     }
     if (value.type === "text" && !value.url) {
@@ -310,14 +322,22 @@ function formatMegabytes(sizeBytes?: number) {
 
 async function ensureCourseMediaUploadLimit(fileSize?: number) {
   try {
-    const { error } = await createAdminClient().storage.updateBucket("course-media", {
+    const storage = createAdminClient().storage;
+    const { data: bucket, error: bucketError } = await storage.getBucket("course-media");
+    if (bucketError || !bucket)
+      return { error: bucketError?.message ?? "No pudimos consultar el límite del bucket." };
+    if (!fileSize || !bucket.file_size_limit || fileSize <= bucket.file_size_limit)
+      return { data: true };
+    if (fileSize > maxPrivateUploadBytes)
+      return { error: `El archivo supera el máximo admitido de ${formatMegabytes(maxPrivateUploadBytes)}.` };
+    const { error } = await storage.updateBucket("course-media", {
       public: false,
-      fileSizeLimit: maxPrivateUploadBytes,
+      fileSizeLimit: fileSize,
     });
     if (!error) return { data: true };
     if (/maximum size|exceeded/i.test(error.message)) {
       return {
-        error: `El proyecto de Supabase no permite subir archivos de ${formatMegabytes(fileSize)}. El plan Free admite hasta ${formatMegabytes(freePlanUploadLimitBytes)} por archivo; para videos más pesados necesitás subir el proyecto a Pro/Team o comprimir el video.`,
+        error: `El proyecto de Supabase no permite ampliar el límite para subir este archivo de ${formatMegabytes(fileSize)}. Revisá el límite global de Storage y el plan del proyecto, o comprimí el archivo.`,
       };
     }
     return { error: error.message };
@@ -621,7 +641,11 @@ export async function saveAsset(input: unknown) {
           "La portada del video no existe o todavía no terminó de cargarse.",
       };
   }
-  const storedUrl = asset.storagePath ?? asset.url;
+  const youTubeVideoId = asset.type === "video" && !asset.storagePath
+    ? getYouTubeVideoId(asset.url)
+    : null;
+  const storedUrl = asset.storagePath ??
+    (youTubeVideoId ? `https://www.youtube.com/watch?v=${youTubeVideoId}` : asset.url);
   const payload = {
     course_id: asset.courseId,
     module_id: asset.moduleId,

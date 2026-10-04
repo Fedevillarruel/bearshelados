@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:youtube": "node --test tests/youtube.test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

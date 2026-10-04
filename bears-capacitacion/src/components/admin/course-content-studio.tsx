@@ -37,6 +37,7 @@ import {
   type PendingCourseAssetFile,
 } from "@/lib/course-asset-files";
 import { uploadPrivateFile } from "@/lib/supabase/resumable-upload";
+import { YouTubeLinkHelp } from "@/components/admin/youtube-link-help";
 
 type AssetType = CourseAssetType;
 
@@ -461,10 +462,14 @@ function AssetEditor({
             value={source}
             onChange={(event) => {
               setSource(event.target.value);
-              if (event.target.value) setStoragePath(null);
+              if (event.target.value) {
+                setStoragePath(null);
+                setPendingFile(null);
+              }
             }}
             required={!storagePath && !pendingFile}
           />
+          {type === "video" ? <YouTubeLinkHelp /> : null}
         </label>
       )}
 

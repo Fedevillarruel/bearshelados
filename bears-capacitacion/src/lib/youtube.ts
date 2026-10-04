@@ -14,6 +14,7 @@ function getYouTubeHostname(value: string) {
   } catch {
     return null;
   }
+  if (!["https:", "http:"].includes(url.protocol)) return null;
 
   const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
   return hostname === "youtu.be" || youtubeHosts.has(hostname) ? { url, hostname } : null;

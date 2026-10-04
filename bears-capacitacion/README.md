@@ -93,10 +93,22 @@ openssl rand -base64 48  # CRON_SECRET
 
 - `course-media` y `manuals` son privados y se entregan con URLs firmadas de corta duración.
 - Los cursos admiten videos MP4/WebM, PDF, imágenes, Excel/XLSX, CSV, Word y PowerPoint desde el gestor de contenido.
+- Las subidas de cursos, portadas y portadas de videos respetan el límite existente de `course-media`. Solo intentan ampliarlo al tamaño del archivo cuando es necesario; el límite global de Storage y el plan de Supabase siguen aplicando.
 - `avatars` es público y está organizado por ID de usuario.
 - Todas las tablas tienen RLS. Las Server Actions vuelven a validar roles en el servidor.
 - El endpoint de video comprueba sesión y permiso sobre el activo antes de registrar rangos vistos.
 - Las opciones de exámenes se califican del lado del servidor.
+
+### Videos de YouTube en módulos
+
+1. Creá un canal administrado por Bears y subí los videos como **No listado**, con **Permitir inserción** habilitado. No listado no es privado: cualquiera con el enlace puede verlo.
+2. En el módulo, agregá contenido de tipo **Video** y pegá el enlace en **URL de YouTube o video externo**. No selecciones un archivo si querés usar YouTube.
+3. Indicá la duración real en segundos (por ejemplo, 5 minutos = 300). Se utiliza para el porcentaje de avance, los requisitos de finalización y la duración del curso.
+4. Si corresponde, marcá el video como principal del módulo y guardá.
+
+Se admiten enlaces de reproducción (`watch?v=`), enlaces cortos (`youtu.be`), Shorts, directos y enlaces de inserción. Se guarda una URL canónica del video; los enlaces de canales o listas sin video se rechazan. El alumno reproduce dentro de la plataforma, retoma su posición y registra los rangos vistos. Saltar a un punto del video no acredita el tramo omitido; ver el video fuera de la plataforma no registra avance.
+
+Si YouTube no puede cargar o el video es privado, eliminado o tiene la inserción bloqueada, el reproductor informa el problema y ofrece abrirlo en YouTube. No se cambia silenciosamente a un reproductor sin seguimiento. Las restricciones de edad, región y las políticas de YouTube también pueden impedir la reproducción integrada.
 
 ## Tiendanube
 
@@ -137,6 +149,7 @@ http://localhost:3000/auth/callback
 
 ```bash
 npm run build
+npm run test:youtube
 ```
 
 La aplicación no muestra información operativa cuando Supabase no está configurado. Los flujos de usuarios, cursos, manuales, reportes y Tiendanube requieren una configuración válida de Supabase.

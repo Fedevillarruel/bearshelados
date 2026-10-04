@@ -49,6 +49,7 @@ import {
   type PendingCourseAssetFile,
 } from "@/lib/course-asset-files";
 import { uploadPrivateFile } from "@/lib/supabase/resumable-upload";
+import { YouTubeLinkHelp } from "@/components/admin/youtube-link-help";
 
 type AssetType = CourseAssetType;
 
@@ -651,10 +652,14 @@ function ModuleForm({
                         }
                         value={draft.source}
                         onChange={(event) =>
-                          updateDraft(draft.id, { source: event.target.value })
+                          updateDraft(draft.id, {
+                            source: event.target.value,
+                            ...(event.target.value ? { file: null } : {}),
+                          })
                         }
                         required={!draft.file}
                       />
+                      {draft.type === "video" ? <YouTubeLinkHelp /> : null}
                     </label>
                   )}
                   {draft.type !== "text" && draft.type !== "link" ? (
@@ -1012,19 +1017,23 @@ function AssetForm({
         </label>
       ) : (
         <label className="grid gap-2 text-sm font-medium" htmlFor="asset-url">
-          URL externa (opcional si subís un archivo)
+          {type === "video" ? "URL de YouTube o video externo (opcional si subís un archivo)" : "URL externa (opcional si subís un archivo)"}
           <input
             id="asset-url"
             className="h-11 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade"
             type="url"
-            placeholder="https://"
+            placeholder={type === "video" ? "https://www.youtube.com/watch?v=..." : "https://"}
             value={source}
             onChange={(event) => {
               setSource(event.target.value);
-              if (event.target.value) setStoragePath(null);
+              if (event.target.value) {
+                setStoragePath(null);
+                setFile(null);
+              }
             }}
             required={!storagePath && !file}
           />
+          {type === "video" ? <YouTubeLinkHelp /> : null}
         </label>
       )}
       {acceptsFiles ? (

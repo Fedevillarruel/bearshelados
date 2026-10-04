@@ -13,6 +13,8 @@ import {
   PlayCircle,
 } from "lucide-react";
 import { useVideoTracking } from "@/hooks/use-video-tracking";
+import { YouTubeVideo } from "@/components/learning/youtube-video";
+import { getYouTubeVideoId, isYouTubeUrl } from "@/lib/youtube";
 import type {
   EmployeeAsset,
   EmployeeCourseModule,
@@ -69,7 +71,12 @@ function TrackedVideo({ asset }: { asset: EmployeeAsset }) {
 }
 
 function AssetContent({ asset }: { asset: EmployeeAsset }) {
-  if (asset.type === "video") return <TrackedVideo asset={asset} />;
+  if (asset.type === "video") {
+    const videoId = getYouTubeVideoId(asset.url);
+    if (videoId) return <YouTubeVideo key={asset.id} asset={asset} videoId={videoId} />;
+    if (isYouTubeUrl(asset.url)) return <p role="alert">Este enlace de YouTube no identifica un video reproducible.</p>;
+    return <TrackedVideo asset={asset} />;
+  }
   if (asset.type === "pdf")
     return (
       <section className="overflow-hidden border border-line">
