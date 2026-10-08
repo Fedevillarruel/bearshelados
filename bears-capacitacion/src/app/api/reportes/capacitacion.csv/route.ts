@@ -18,7 +18,20 @@ export async function GET() {
   }
 
   const overview = await getTrainingOverview({ franchiseId: viewer.role === "franquiciado" ? viewer.franchiseId : undefined });
-  const headers = ["Nombre", "Correo", "Puesto", "Franquicia", "Cursos completados", "Cursos asignados", "Progreso promedio", "Nota promedio", "Minutos de video", "Última actividad", "Estado"];
+  const headers = [
+    "Nombre",
+    "Correo",
+    "Puesto",
+    "Franquicia",
+    "Cursos completados",
+    "Cursos asignados",
+    "Progreso promedio",
+    "Nota promedio",
+    ...overview.moduleScores.map((module) => `Promedio · ${module.label}`),
+    "Minutos de video",
+    "Última actividad",
+    "Estado",
+  ];
   const rows = overview.team.map((member) => [
     member.fullName ?? "",
     member.email,
@@ -27,7 +40,15 @@ export async function GET() {
     member.completedCourses,
     member.assignedCourses,
     `${Math.round(member.averageProgress)}%`,
-    member.averageScore?.toFixed(1) ?? "",
+    member.averageScore === null ? "" : `${member.averageScore.toFixed(1)}%`,
+    ...overview.moduleScores.map((module) => {
+      const moduleScore = member.moduleScores.find((score) =>
+        module.moduleId
+          ? score.moduleId === module.moduleId
+          : score.label === module.label,
+      );
+      return moduleScore ? `${moduleScore.averageScore.toFixed(1)}%` : "";
+    }),
     member.watchedMinutes,
     member.lastSeenAt ?? "",
     member.status,
