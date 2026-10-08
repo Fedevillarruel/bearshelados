@@ -126,6 +126,12 @@ export type EmployeeCourseModule = {
   courseAssets: EmployeeAsset[];
   exams: ExamRow[];
   courseExams: ExamRow[];
+  completedExamIds: string[];
+  accessBlockedBy: {
+    moduleId: string;
+    moduleTitle: string;
+    examTitle: string;
+  } | null;
   completedModuleIds: string[];
   previousModule: EmployeeModule | null;
   nextModule: EmployeeModule | null;
@@ -140,6 +146,70 @@ export type EmployeeProgress = EmployeeCourse & {
   averageScore: number | null;
   latestAttemptAt: string | null;
 };
+
+export async function getUnpassedBlockingExam(
+  userId: string,
+  courseId: string,
+  beforeModuleId: string | null,
+) {
+  const admin = createAdminClient();
+  const { data: moduleData, error: moduleError } = await admin
+    .from("modules")
+    .select("id, title, order_index")
+    .eq("course_id", courseId)
+    .eq("is_published", true)
+    .order("order_index");
+  if (moduleError) return { error: "No pudimos verificar el avance del curso." } as const;
+
+  const modules = moduleData ?? [];
+  const moduleLimit = beforeModuleId
+    ? modules.findIndex((module) => module.id === beforeModuleId)
+    : modules.length;
+  if (moduleLimit < 0) return { error: "El módulo seleccionado no está disponible." } as const;
+
+  const previousModules = modules.slice(0, moduleLimit);
+  if (!previousModules.length) return { data: null } as const;
+
+  const { data: examData, error: examError } = await admin
+    .from("exams")
+    .select("id, module_id, title")
+    .in("module_id", previousModules.map((module) => module.id))
+    .eq("is_active", true)
+    .eq("blocks_progress", true);
+  if (examError) return { error: "No pudimos verificar las evaluaciones requeridas." } as const;
+
+  const exams = examData ?? [];
+  if (!exams.length) return { data: null } as const;
+
+  const { data: passedAttemptData, error: attemptError } = await admin
+    .from("exam_attempts")
+    .select("exam_id")
+    .eq("user_id", userId)
+    .eq("passed", true)
+    .in("exam_id", exams.map((exam) => exam.id));
+  if (attemptError) return { error: "No pudimos verificar las evaluaciones aprobadas." } as const;
+
+  const passedExamIds = new Set((passedAttemptData ?? []).map((attempt) => attempt.exam_id));
+  const moduleById = new Map(modules.map((module) => [module.id, module]));
+  const orderedExams = [...exams].sort((left, right) => {
+    const leftOrder = modules.findIndex((module) => module.id === left.module_id);
+    const rightOrder = modules.findIndex((module) => module.id === right.module_id);
+    return leftOrder - rightOrder || left.title.localeCompare(right.title);
+  });
+  const blocker = orderedExams.find((exam) => !passedExamIds.has(exam.id));
+  if (!blocker?.module_id) return { data: null } as const;
+
+  const matchedModule = moduleById.get(blocker.module_id);
+  return matchedModule
+    ? {
+        data: {
+          moduleId: matchedModule.id,
+          moduleTitle: matchedModule.title,
+          examTitle: blocker.title,
+        },
+      } as const
+    : { error: "No pudimos identificar el módulo de la evaluación pendiente." } as const;
+}
 
 function shuffle<T>(items: T[]) {
   const copy = [...items];
@@ -261,6 +331,12 @@ export async function getEmployeeCourseModule(
   const currentIndex = modules.findIndex((module) => module.id === moduleId);
   if (currentIndex < 0) return null;
   const currentModule = modules[currentIndex];
+  const blockingRequirement = await getUnpassedBlockingExam(
+    viewer.id,
+    course.id,
+    currentModule.id,
+  );
+  if ("error" in blockingRequirement) throw new Error(blockingRequirement.error);
 
   const [
     { data: assetData },
@@ -353,6 +429,18 @@ export async function getEmployeeCourseModule(
   const completedModuleIds = (moduleProgressData ?? []).map(
     (progress) => progress.module_id,
   );
+  const visibleExamIds = [...(examData ?? []), ...(courseExamData ?? [])]
+    .filter((exam) => exam.blocks_progress)
+    .map((exam) => exam.id);
+  const { data: passedExamData, error: passedExamError } = visibleExamIds.length
+    ? await supabase
+        .from("exam_attempts")
+        .select("exam_id")
+        .eq("user_id", viewer.id)
+        .eq("passed", true)
+        .in("exam_id", visibleExamIds)
+    : { data: [], error: null };
+  if (passedExamError) throw new Error("No pudimos verificar las evaluaciones aprobadas.");
   const admin = allAssets.some(
     (asset) => asset.storage_path || asset.video_poster_storage_path,
   )
@@ -412,6 +500,8 @@ export async function getEmployeeCourseModule(
     courseAssets: courseAssets.flatMap(withProgress),
     exams: (examData ?? []) as ExamRow[],
     courseExams: (courseExamData ?? []) as ExamRow[],
+    completedExamIds: (passedExamData ?? []).map((attempt) => attempt.exam_id),
+    accessBlockedBy: blockingRequirement.data,
     completedModuleIds,
     previousModule: modules[currentIndex - 1] ?? null,
     nextModule: modules[currentIndex + 1] ?? null,

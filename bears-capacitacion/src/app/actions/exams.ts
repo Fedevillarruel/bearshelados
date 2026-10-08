@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { databaseUuid } from "@/lib/validations/ids";
+import { getUnpassedBlockingExam } from "@/lib/platform/employee";
 
 const submissionSchema = z.object({
   attemptId: databaseUuid,
@@ -17,6 +18,13 @@ export type ExamSubmissionResult = {
   expired: boolean;
   requiredScore: number;
   attemptsRemaining: number | null;
+  completion: {
+    courseTitle: string;
+    employeeName: string;
+    completedAt: string;
+    certificateNumber: string;
+  } | null;
+  completionCheckError: string | null;
   review: Array<{ questionId: string; selectedOptionId: string | null; correctOptionId: string; explanation: string | null }>;
 };
 
@@ -41,7 +49,11 @@ async function getEnrolledExam(examId: string, userId: string) {
   const exam = examData as ExamRecord | null;
   if (!exam) return { error: "El examen no está disponible." } as const;
 
-  const courseId = exam.course_id ?? (await admin.from("modules").select("course_id").eq("id", exam.module_id!).maybeSingle()).data?.course_id;
+  const { data: moduleData, error: moduleError } = exam.module_id
+    ? await admin.from("modules").select("course_id").eq("id", exam.module_id).maybeSingle()
+    : { data: null, error: null };
+  if (moduleError) return { error: "No pudimos verificar el curso de esta evaluación." } as const;
+  const courseId = exam.course_id ?? moduleData?.course_id;
   if (!courseId) return { error: "El examen no está asociado a un curso válido." } as const;
   const { data: enrollment } = await admin.from("enrollments")
     .select("id")
@@ -50,7 +62,14 @@ async function getEnrolledExam(examId: string, userId: string) {
     .maybeSingle();
   if (!enrollment) return { error: "No estás inscripto en este curso." } as const;
 
-  return { admin, exam } as const;
+  const { data: course, error: courseError } = await admin
+    .from("courses")
+    .select("title")
+    .eq("id", courseId)
+    .maybeSingle();
+  if (courseError || !course) return { error: "No pudimos verificar el curso de esta evaluación." } as const;
+
+  return { admin, exam, courseId, courseTitle: course.title } as const;
 }
 
 export async function startExam(examId: string) {
@@ -60,7 +79,18 @@ export async function startExam(examId: string) {
   const viewer = await requireRole(["empleado", "franquiciado"]);
   const enrolledExam = await getEnrolledExam(parsedExamId.data, viewer.id);
   if ("error" in enrolledExam) return enrolledExam;
-  const { admin, exam } = enrolledExam;
+  const { admin, exam, courseId } = enrolledExam;
+  const blockingExam = await getUnpassedBlockingExam(
+    viewer.id,
+    courseId,
+    exam.module_id,
+  );
+  if ("error" in blockingExam) return { error: blockingExam.error };
+  if (blockingExam.data) {
+    return {
+      error: `Primero aprobá “${blockingExam.data.examTitle}” del módulo “${blockingExam.data.moduleTitle}” para continuar.`,
+    };
+  }
 
   const { data: activeAttempt } = await admin.from("exam_attempts")
     .select("id, started_at")
@@ -106,7 +136,18 @@ export async function submitExam(input: unknown) {
 
   const enrolledExam = await getEnrolledExam(parsed.data.examId, viewer.id);
   if ("error" in enrolledExam) return enrolledExam;
-  const { admin, exam } = enrolledExam;
+  const { admin, exam, courseId, courseTitle } = enrolledExam;
+  const blockingExam = await getUnpassedBlockingExam(
+    viewer.id,
+    courseId,
+    exam.module_id,
+  );
+  if ("error" in blockingExam) return { error: blockingExam.error };
+  if (blockingExam.data) {
+    return {
+      error: `Primero aprobá “${blockingExam.data.examTitle}” del módulo “${blockingExam.data.moduleTitle}” para continuar.`,
+    };
+  }
 
   const { data: previousAttempts } = await admin.from("exam_attempts")
     .select("attempt_number, finished_at")
@@ -162,6 +203,12 @@ export async function submitExam(input: unknown) {
     correctOptionId: question.options.find((option) => option.is_correct)?.id ?? "",
     explanation: null,
   })) : [];
+  const { data: completedEnrollment, error: completionError } = await admin
+    .from("enrollments")
+    .select("id, status, completed_at")
+    .eq("user_id", viewer.id)
+    .eq("course_id", courseId)
+    .maybeSingle();
 
   return {
     data: {
@@ -170,6 +217,17 @@ export async function submitExam(input: unknown) {
       expired,
       requiredScore: Number(exam.passing_score),
       attemptsRemaining: exam.max_attempts ? exam.max_attempts - (previousAttempts?.length ?? 0) - 1 : null,
+      completion: completedEnrollment?.status === "completado" && completedEnrollment.completed_at
+        ? {
+            courseTitle,
+            employeeName: viewer.fullName ?? viewer.email,
+            completedAt: completedEnrollment.completed_at,
+            certificateNumber: `BH-${completedEnrollment.id.toUpperCase()}`,
+          }
+        : null,
+      completionCheckError: completionError
+        ? "La evaluación se registró, pero no pudimos verificar si el curso quedó finalizado. Revisá tu progreso."
+        : null,
       review,
     } satisfies ExamSubmissionResult,
   };

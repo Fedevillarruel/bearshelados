@@ -3,43 +3,109 @@
 import { FileDown } from "lucide-react";
 import { jsPDF } from "jspdf";
 
-type CertificateDownloadProps = {
+export type CourseCertificate = {
   courseTitle: string;
   employeeName: string;
-  completedAt: string | null;
+  completedAt: string;
+  certificateNumber: string;
 };
 
-export function CertificateDownload({ courseTitle, employeeName, completedAt }: CertificateDownloadProps) {
-  function downloadCertificate() {
-    const document = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
-    const date = completedAt ? new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(completedAt)) : new Intl.DateTimeFormat("es-AR").format(new Date());
-    document.setFillColor(31, 110, 86);
-    document.rect(0, 0, 297, 210, "F");
-    document.setFillColor(255, 255, 255);
-    document.rect(12, 12, 273, 186, "F");
-    document.setTextColor(31, 110, 86);
-    document.setFontSize(16);
-    document.text("BEARS HELADOS", 148.5, 42, { align: "center" });
-    document.setTextColor(10, 10, 10);
-    document.setFontSize(30);
-    document.text("Certificado de finalización", 148.5, 70, { align: "center" });
-    document.setFontSize(13);
-    document.setTextColor(107, 107, 104);
-    document.text("Se certifica que", 148.5, 91, { align: "center" });
-    document.setFontSize(23);
-    document.setTextColor(10, 10, 10);
-    document.text(employeeName, 148.5, 109, { align: "center" });
-    document.setFontSize(13);
-    document.setTextColor(107, 107, 104);
-    document.text("completó satisfactoriamente el curso", 148.5, 126, { align: "center" });
-    document.setFontSize(18);
-    document.setTextColor(31, 110, 86);
-    document.text(courseTitle, 148.5, 142, { align: "center" });
-    document.setFontSize(11);
-    document.setTextColor(107, 107, 104);
-    document.text(`Emitido el ${date}`, 148.5, 169, { align: "center" });
-    document.save(`certificado-${courseTitle.toLowerCase().replace(/[^a-z0-9]+/gi, "-")}.pdf`);
-  }
+export function formatCertificateDate(date: string) {
+  return new Intl.DateTimeFormat("es-AR", {
+    dateStyle: "long",
+    timeStyle: "short",
+    timeZone: "America/Argentina/Buenos_Aires",
+  }).format(new Date(date));
+}
 
-  return <button className="inline-flex h-10 items-center gap-2 rounded-sm border px-3 text-sm font-medium transition-colors hover:bg-surface" type="button" onClick={downloadCertificate}><FileDown className="size-4" aria-hidden="true" />Certificado</button>;
+export function downloadCourseCertificate(certificate: CourseCertificate) {
+  const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
+  const center = 148.5;
+  const date = formatCertificateDate(certificate.completedAt);
+
+  pdf.setFillColor(246, 248, 244);
+  pdf.rect(0, 0, 297, 210, "F");
+  pdf.setFillColor(31, 110, 86);
+  pdf.rect(8, 8, 281, 194, "F");
+  pdf.setFillColor(255, 255, 255);
+  pdf.rect(11, 11, 275, 188, "F");
+  pdf.setTextColor(31, 110, 86);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(15);
+  pdf.text("BEARS HELADOS", center, 39, { align: "center" });
+
+  pdf.setTextColor(25, 37, 32);
+  pdf.setFontSize(28);
+  pdf.text("Constancia de finalización", center, 65, { align: "center" });
+  pdf.setDrawColor(218, 230, 221);
+  pdf.line(76, 73, 221, 73);
+
+  pdf.setTextColor(107, 117, 110);
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(12);
+  pdf.text("Se certifica que", center, 91, { align: "center" });
+  pdf.setTextColor(25, 37, 32);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(22);
+  pdf.text(pdf.splitTextToSize(certificate.employeeName, 220), center, 105, {
+    align: "center",
+  });
+  pdf.setTextColor(107, 117, 110);
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(12);
+  pdf.text("completó satisfactoriamente el curso", center, 122, {
+    align: "center",
+  });
+  pdf.setTextColor(31, 110, 86);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(18);
+  pdf.text(pdf.splitTextToSize(certificate.courseTitle, 240), center, 137, {
+    align: "center",
+  });
+
+  pdf.setDrawColor(218, 230, 221);
+  pdf.line(44, 153, 253, 153);
+  pdf.setTextColor(70, 80, 73);
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(10);
+  pdf.text(`Fecha y hora: ${date}`, 51, 169);
+  pdf.text(`N.º de constancia: ${certificate.certificateNumber}`, 51, 181);
+  pdf.setTextColor(107, 117, 110);
+  pdf.setFontSize(9);
+  pdf.text("Capacitación y desarrollo · Bears Helados", 246, 181, {
+    align: "right",
+  });
+
+  const safeName = certificate.courseTitle
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  pdf.save(`constancia-${safeName || "curso"}.pdf`);
+}
+
+export function CertificateDownload({
+  courseTitle,
+  employeeName,
+  completedAt,
+  certificateNumber,
+}: CourseCertificate) {
+  return (
+    <button
+      className="inline-flex h-10 items-center gap-2 rounded-sm border px-3 text-sm font-medium transition-colors hover:bg-surface"
+      type="button"
+      onClick={() =>
+        downloadCourseCertificate({
+          courseTitle,
+          employeeName,
+          completedAt,
+          certificateNumber,
+        })
+      }
+    >
+      <FileDown className="size-4" aria-hidden="true" />
+      Descargar constancia
+    </button>
+  );
 }

@@ -15,6 +15,7 @@ import {
   FileText,
   ImageIcon,
   Link2,
+  LockKeyhole,
   PlayCircle,
   Video,
 } from "lucide-react";
@@ -190,10 +191,37 @@ export function AdaptiveCoursePlayer({ data }: { data: EmployeeCourseModule }) {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(firstResourceId);
   const selectedAsset = resources.find(({ asset }) => asset.id === selectedAssetId)?.asset ?? resources[0]?.asset;
   const visibleExams = [...data.exams, ...data.courseExams];
+  const canProceed = visibleExams.every((exam) =>
+    !exam.blocks_progress || data.completedExamIds.includes(exam.id),
+  );
 
   useEffect(() => {
     setSelectedAssetId(firstResourceId);
   }, [data.currentModule.id, firstResourceId]);
+
+  if (data.accessBlockedBy) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-surface px-5 py-10">
+        <section className="w-full max-w-xl border border-line bg-paper p-6 sm:p-8">
+          <span className="grid size-12 place-items-center rounded-full bg-sand-soft text-jade-deep">
+            <LockKeyhole className="size-6" aria-hidden="true" />
+          </span>
+          <p className="mt-6 font-tabular text-xs text-jade-deep">MÓDULO BLOQUEADO</p>
+          <h1 className="mt-2 text-2xl font-medium">Completá la evaluación para continuar</h1>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            Primero aprobá “{data.accessBlockedBy.examTitle}” en el módulo “{data.accessBlockedBy.moduleTitle}”.
+            Cuando la apruebes, este módulo se va a desbloquear automáticamente.
+          </p>
+          <Link
+            className="mt-7 inline-flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep"
+            href={`${coursePath}/${data.accessBlockedBy.moduleId}`}
+          >
+            Ir al módulo pendiente <ChevronRight className="size-4" aria-hidden="true" />
+          </Link>
+        </section>
+      </main>
+    );
+  }
 
   function refreshProgress() {
     router.refresh();
@@ -217,8 +245,8 @@ export function AdaptiveCoursePlayer({ data }: { data: EmployeeCourseModule }) {
           {selectedAsset ? <div className="mt-8"><AssetStage asset={selectedAsset} key={selectedAsset.id} onAssetCompleted={refreshProgress} /></div> : <section className="mt-8 border border-dashed border-line bg-surface p-6"><BookOpen className="size-5 text-jade" aria-hidden="true" /><p className="mt-4 text-sm text-muted">Este módulo todavía no tiene contenido publicado.</p></section>}
           <ResourceProgressRecorder asset={selectedAsset} onRecorded={refreshProgress} />
           {resources.length ? <section className="mt-8 xl:hidden"><h3 className="mb-3 text-sm font-medium">Contenido de esta lección</h3><ResourceList resources={resources} selectedAssetId={selectedAsset?.id ?? null} onSelect={setSelectedAssetId} /></section> : null}
-          {visibleExams.length ? <section className="mt-8 border border-line bg-sand-soft p-5"><p className="font-tabular text-xs text-jade-deep">EVALUACIÓN</p>{visibleExams.map((exam) => <div className="mt-3 flex flex-wrap items-center justify-between gap-4" key={exam.id}><div><h3 className="font-medium">{exam.title}</h3><p className="mt-1 text-sm text-muted">Aprobás con {Number(exam.passing_score)}%.</p></div><Link className="flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep" href={`/cursos/examen/${exam.id}`}>Rendir <ChevronRight className="size-4" aria-hidden="true" /></Link></div>)}</section> : null}
-          <nav className="mt-10 flex justify-between gap-4 border-t border-line pt-5" aria-label="Navegación entre módulos">{data.previousModule ? <Link className="flex h-11 items-center gap-2 rounded-sm border px-4 text-sm text-muted transition-colors hover:bg-surface hover:text-ink" href={`${coursePath}/${data.previousModule.id}`}><ChevronLeft className="size-4" aria-hidden="true" />Anterior</Link> : <span />}{data.nextModule ? <Link className="ml-auto flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep" href={`${coursePath}/${data.nextModule.id}`}>Siguiente <ChevronRight className="size-4" aria-hidden="true" /></Link> : <Link className="ml-auto flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep" href="/cursos/progreso">Ver progreso <ChevronRight className="size-4" aria-hidden="true" /></Link>}</nav>
+          {visibleExams.length ? <section className="mt-8 border border-line bg-sand-soft p-5"><p className="font-tabular text-xs text-jade-deep">EVALUACIÓN</p>{visibleExams.map((exam) => { const passed = data.completedExamIds.includes(exam.id); return <div className="mt-3 flex flex-wrap items-center justify-between gap-4" key={exam.id}><div><h3 className="font-medium">{exam.title}</h3><p className="mt-1 text-sm text-muted">Aprobás con {Number(exam.passing_score)}%.</p></div>{passed ? <span className="inline-flex h-10 items-center gap-2 px-3 text-sm font-medium text-jade-deep"><CheckCircle2 className="size-4" aria-hidden="true" />Aprobada</span> : <Link className="flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep" href={`/cursos/examen/${exam.id}`}>Rendir <ChevronRight className="size-4" aria-hidden="true" /></Link>}</div>; })}</section> : null}
+          <nav className="mt-10 flex justify-between gap-4 border-t border-line pt-5" aria-label="Navegación entre módulos">{data.previousModule ? <Link className="flex h-11 items-center gap-2 rounded-sm border px-4 text-sm text-muted transition-colors hover:bg-surface hover:text-ink" href={`${coursePath}/${data.previousModule.id}`}><ChevronLeft className="size-4" aria-hidden="true" />Anterior</Link> : <span />}{data.nextModule ? canProceed ? <Link className="ml-auto flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep" href={`${coursePath}/${data.nextModule.id}`}>Siguiente <ChevronRight className="size-4" aria-hidden="true" /></Link> : <p className="ml-auto flex min-h-11 items-center gap-2 text-sm font-medium text-muted"><LockKeyhole className="size-4" aria-hidden="true" />Aprobá la evaluación para continuar</p> : <Link className="ml-auto flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep" href="/cursos/progreso">Ver progreso <ChevronRight className="size-4" aria-hidden="true" /></Link>}</nav>
         </div>
       </main>
 

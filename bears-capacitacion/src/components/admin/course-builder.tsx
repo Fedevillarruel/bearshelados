@@ -1409,7 +1409,7 @@ function ExamForm({
         </div>
         <div className="mt-4 space-y-5">
           {questions.map((question, questionIndex) => (
-            <article className="border border-line p-4" key={questionIndex}>
+            <article className="min-w-0 border border-line p-4" key={questionIndex}>
               <div className="flex items-center justify-between gap-4">
                 <p className="font-tabular text-xs text-muted">
                   PREGUNTA {String(questionIndex + 1).padStart(2, "0")}
@@ -1446,7 +1446,7 @@ function ExamForm({
                   required
                 />
               </label>
-              <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px]">
+              <div className="mt-3 grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_110px]">
                 <label
                   className="grid gap-2 text-sm font-medium"
                   htmlFor={`explanation-${questionIndex}`}
@@ -1454,7 +1454,7 @@ function ExamForm({
                   Explicación (opcional)
                   <input
                     id={`explanation-${questionIndex}`}
-                    className="h-10 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade"
+                    className="h-10 w-full min-w-0 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade"
                     value={question.explanation ?? ""}
                     onChange={(event) =>
                       updateQuestion(questionIndex, {
@@ -1470,7 +1470,7 @@ function ExamForm({
                   Puntos
                   <input
                     id={`points-${questionIndex}`}
-                    className="h-10 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade"
+                    className="h-10 w-full min-w-0 rounded-sm border bg-paper px-3 text-sm outline-none focus:border-jade"
                     type="number"
                     min="0.1"
                     step="0.1"
