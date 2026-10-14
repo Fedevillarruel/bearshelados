@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { Viewer } from "@/lib/auth/roles";
+import { getCourseCompletion } from "@/lib/platform/completion";
 
 type CourseRow = {
   id: string;
@@ -28,6 +29,19 @@ type EnrollmentRow = {
   started_at: string | null;
   completed_at: string | null;
 };
+
+function withVerifiedCompletion(
+  enrollment: EnrollmentRow,
+  completion: Awaited<ReturnType<typeof getCourseCompletion>>,
+): EnrollmentRow {
+  return {
+    ...enrollment,
+    progress_percent: completion.progressPercent,
+    status: completion.isCompleted ? "completado"
+      : enrollment.status === "asignado" && completion.progressPercent === 0 ? "asignado" : "en_progreso",
+    completed_at: completion.isCompleted ? enrollment.completed_at : null,
+  };
+}
 
 type ModuleRow = {
   id: string;
@@ -235,18 +249,19 @@ export async function getEmployeeCourses(
   viewer: Viewer,
 ): Promise<EmployeeCourse[]> {
   const supabase = await createClient();
-  const { data: enrollmentData } = await supabase
+  const { data: enrollmentData, error: enrollmentError } = await supabase
     .from("enrollments")
     .select(
       "id, course_id, due_date, status, progress_percent, assigned_at, started_at, completed_at",
     )
     .eq("user_id", viewer.id)
     .order("assigned_at", { ascending: false });
+  if (enrollmentError) throw new Error("No pudimos consultar tus cursos asignados.");
   const enrollments = (enrollmentData ?? []) as EnrollmentRow[];
   if (!enrollments.length) return [];
 
   const courseIds = enrollments.map((enrollment) => enrollment.course_id);
-  const [{ data: courseData }, { data: moduleData }] = await Promise.all([
+  const [{ data: courseData, error: courseError }, { data: moduleData, error: moduleError }] = await Promise.all([
     supabase
       .from("courses")
       .select(
@@ -260,6 +275,7 @@ export async function getEmployeeCourses(
       .eq("is_published", true)
       .order("order_index"),
   ]);
+  if (courseError || moduleError) throw new Error("No pudimos consultar los cursos y sus módulos.");
   const courses = await Promise.all(
     ((courseData ?? []) as StoredCourseRow[]).map(resolveCourseCover),
   );
@@ -278,7 +294,13 @@ export async function getEmployeeCourses(
       firstModuleIdByCourse.set(courseModule.course_id, courseModule.id);
   }
 
-  return enrollments.flatMap((enrollment) => {
+  const verifiedEnrollments = await Promise.all(enrollments.map(async (enrollment) =>
+    withVerifiedCompletion(enrollment, await getCourseCompletion(
+      supabase, viewer.id, enrollment.course_id,
+      modules.filter((module) => module.course_id === enrollment.course_id),
+    )),
+  ));
+  return verifiedEnrollments.flatMap((enrollment) => {
     const course = coursesById.get(enrollment.course_id);
     return course
       ? [
@@ -299,18 +321,19 @@ export async function getEmployeeCourseModule(
   moduleId: string,
 ): Promise<EmployeeCourseModule | null> {
   const supabase = await createClient();
-  const { data: courseData } = await supabase
+  const { data: courseData, error: courseError } = await supabase
     .from("courses")
     .select(
       "id, title, slug, description, summary, cover_url, cover_storage_path, category, estimated_minutes, is_published",
     )
     .eq("slug", slug)
     .maybeSingle();
+  if (courseError) throw new Error("No pudimos consultar el curso.");
   const storedCourse = courseData as StoredCourseRow | null;
   if (!storedCourse) return null;
   const course = await resolveCourseCover(storedCourse);
 
-  const { data: enrollmentData } = await supabase
+  const { data: enrollmentData, error: enrollmentError } = await supabase
     .from("enrollments")
     .select(
       "id, course_id, due_date, status, progress_percent, assigned_at, started_at, completed_at",
@@ -318,15 +341,17 @@ export async function getEmployeeCourseModule(
     .eq("user_id", viewer.id)
     .eq("course_id", course.id)
     .maybeSingle();
+  if (enrollmentError) throw new Error("No pudimos verificar tu inscripción al curso.");
   const enrollment = enrollmentData as EnrollmentRow | null;
   if (!enrollment) return null;
 
-  const { data: moduleData } = await supabase
+  const { data: moduleData, error: moduleError } = await supabase
     .from("modules")
     .select("id, course_id, title, description, order_index, is_published")
     .eq("course_id", course.id)
     .eq("is_published", true)
     .order("order_index");
+  if (moduleError) throw new Error("No pudimos consultar los módulos del curso.");
   const modules = (moduleData ?? []) as ModuleRow[];
   const currentIndex = modules.findIndex((module) => module.id === moduleId);
   if (currentIndex < 0) return null;
@@ -339,10 +364,10 @@ export async function getEmployeeCourseModule(
   if ("error" in blockingRequirement) throw new Error(blockingRequirement.error);
 
   const [
-    { data: assetData },
-    { data: courseAssetData },
-    { data: examData },
-    { data: courseExamData },
+    { data: assetData, error: assetError },
+    { data: courseAssetData, error: courseAssetError },
+    { data: examData, error: examError },
+    { data: courseExamData, error: courseExamError },
   ] = await Promise.all([
     supabase
       .from("assets")
@@ -373,8 +398,11 @@ export async function getEmployeeCourseModule(
           )
           .eq("course_id", course.id)
           .eq("is_active", true)
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [], error: null }),
   ]);
+  if (assetError || courseAssetError || examError || courseExamError) {
+    throw new Error("No pudimos consultar los contenidos y evaluaciones del curso.");
+  }
   const assets = (assetData ?? []) as AssetRow[];
   const courseAssets = (courseAssetData ?? []) as AssetRow[];
   const allAssets = [...assets, ...courseAssets];
@@ -385,9 +413,9 @@ export async function getEmployeeCourseModule(
     .filter((asset) => asset.type !== "video")
     .map((asset) => asset.id);
   const [
-    { data: progressData },
-    { data: resourceProgressData },
-    { data: moduleProgressData },
+    { data: progressData, error: progressError },
+    { data: resourceProgressData, error: resourceProgressError },
+    completion,
   ] = await Promise.all([
     videoAssetIds.length
       ? supabase
@@ -395,26 +423,17 @@ export async function getEmployeeCourseModule(
           .select("asset_id, last_position, watched_ranges, completed")
           .eq("user_id", viewer.id)
           .in("asset_id", videoAssetIds)
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [], error: null }),
     resourceAssetIds.length
       ? supabase
           .from("resource_progress")
           .select("asset_id")
           .eq("user_id", viewer.id)
           .in("asset_id", resourceAssetIds)
-      : Promise.resolve({ data: [] }),
-    modules.length
-      ? supabase
-          .from("module_progress")
-          .select("module_id")
-          .eq("user_id", viewer.id)
-          .eq("is_completed", true)
-          .in(
-            "module_id",
-            modules.map((module) => module.id),
-          )
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [], error: null }),
+    getCourseCompletion(supabase, viewer.id, course.id, modules),
   ]);
+  if (progressError || resourceProgressError) throw new Error("No pudimos consultar el avance de los contenidos.");
   const progressByAssetId = new Map(
     ((progressData ?? []) as VideoProgressRow[]).map((progress) => [
       progress.asset_id,
@@ -426,20 +445,6 @@ export async function getEmployeeCourseModule(
       (progress) => progress.asset_id,
     ),
   );
-  const completedModuleIds = (moduleProgressData ?? []).map(
-    (progress) => progress.module_id,
-  );
-  const visibleExamIds = [...(examData ?? []), ...(courseExamData ?? [])]
-    .map((exam) => exam.id);
-  const { data: passedExamData, error: passedExamError } = visibleExamIds.length
-    ? await supabase
-        .from("exam_attempts")
-        .select("exam_id")
-        .eq("user_id", viewer.id)
-        .eq("passed", true)
-        .in("exam_id", visibleExamIds)
-    : { data: [], error: null };
-  if (passedExamError) throw new Error("No pudimos verificar las evaluaciones aprobadas.");
   const admin = allAssets.some(
     (asset) => asset.storage_path || asset.video_poster_storage_path,
   )
@@ -492,16 +497,16 @@ export async function getEmployeeCourseModule(
 
   return {
     course,
-    enrollment,
+    enrollment: withVerifiedCompletion(enrollment, completion),
     modules,
     currentModule,
     assets: assets.flatMap(withProgress),
     courseAssets: courseAssets.flatMap(withProgress),
     exams: (examData ?? []) as ExamRow[],
     courseExams: (courseExamData ?? []) as ExamRow[],
-    completedExamIds: (passedExamData ?? []).map((attempt) => attempt.exam_id),
+    completedExamIds: completion.completedExamIds,
     accessBlockedBy: blockingRequirement.data,
-    completedModuleIds,
+    completedModuleIds: completion.completedModuleIds,
     previousModule: modules[currentIndex - 1] ?? null,
     nextModule: modules[currentIndex + 1] ?? null,
   };

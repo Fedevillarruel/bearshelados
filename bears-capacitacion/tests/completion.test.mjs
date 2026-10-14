@@ -95,9 +95,10 @@ test("video client never reports local/HTTP/error completion as server-confirmed
 
 test("employee completion reads approved attempts for every active visible exam, without changing blockers", () => {
   const employee = source("src/lib/platform/employee.ts");
-  const visibleIds = employee.slice(employee.indexOf("const visibleExamIds"), employee.indexOf("if (passedExamError)"));
-  assert.doesNotMatch(visibleIds, /filter.*blocks_progress/);
-  assert.match(visibleIds, /\.eq\("passed", true\)/);
+  const completion = source("src/lib/platform/completion.ts");
+  assert.match(employee, /completedExamIds: completion.completedExamIds/);
+  assert.match(completion, /\.eq\("passed", true\)/);
+  assert.match(completion, /if \(exams.length\) return exams.every/);
   const blockers = employee.slice(employee.indexOf("export async function getUnpassedBlockingExam"), employee.indexOf("function shuffle"));
   assert.match(blockers, /\.eq\("blocks_progress", true\)/);
   assert.match(blockers, /\.eq\("is_active", true\)/);

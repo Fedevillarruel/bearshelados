@@ -238,3 +238,9 @@ rm -rf .completion-validation
 Sin `COMPLETION_PGLITE_PATH` se omite explícitamente sólo la prueba SQL; las regresiones de API, cliente y reproductores siguen ejecutándose. La prueba SQL aplica las funciones/triggers históricos de `014`/`016` y el trigger de evaluaciones, siembra progreso inconsistente y aplica `021`; verifica backfill completo, múltiples evaluaciones, aprobación versus entrega, recursos, examen final, fechas/idempotencia y refresco de videos ya completados. Aplicar la migración en producción queda como paso separado del despliegue.
 
 En vista administrativa de solo lectura, ambos reproductores de cursos aceptan `readOnly`: no montan el registro de recursos ni envían inicio/avance de video. Los videos nativos y YouTube siguen disponibles para reproducir, retomar y volver a ver, sin cambiar rangos ni disparar finalizaciones. Las pruebas verifican la propagación de la opción y ausencia de escrituras incluso al pausar, finalizar, cambiar de pestaña y desmontar.
+
+### Lectura de avances históricos
+
+El reproductor, Mis cursos y Mi progreso verifican los completados contra las evaluaciones activas aprobadas y los contenidos vistos, en lugar de confiar únicamente en los estados derivados de `module_progress` y `enrollments`. Así, una evaluación aprobada y el tilde del módulo usan la misma evidencia aunque el cálculo almacenado sea antiguo. Se verifican todos los módulos publicados del curso, no solamente el abierto; los intentos se consultan paginados y siempre para el usuario correspondiente, también en vista administrativa. Los errores de consulta se muestran explícitamente.
+
+Esta verificación no escribe datos ni inventa fechas de certificados. La migración 021 sigue siendo necesaria para reparar los estados persistidos usados por reportes y certificados. Regresión de la inconsistencia histórica: `node --test tests/completion-read.test.mjs tests/completion.test.mjs`.
