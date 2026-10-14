@@ -3,7 +3,7 @@ import Link from "next/link";
 import { BookOpen, CalendarDays, ChevronRight, Clock3 } from "lucide-react";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { PortalLayout } from "@/components/portal/portal-layout";
-import { requireRole } from "@/lib/auth/roles";
+import { requirePortalRole } from "@/lib/auth/roles";
 import { getEmployeeCourses } from "@/lib/platform/employee";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -29,7 +29,7 @@ export default async function MyCoursesPage() {
   if (!isSupabaseConfigured())
     return <PortalShell role="empleado" view="learning" />;
 
-  const viewer = await requireRole(["empleado", "franquiciado"]);
+  const viewer = await requirePortalRole(["empleado", "franquiciado"]);
   const courses = await getEmployeeCourses(viewer);
 
   return (

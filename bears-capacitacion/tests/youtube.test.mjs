@@ -205,8 +205,8 @@ async function trackingHarness(options = {}, apiAvailable = true) {
     },
     "@/lib/video-ranges": loadModule("src/lib/video-ranges.ts"),
     "@/lib/video-progress-client": {
-      saveVideoProgress: async (input) => { saved.push(JSON.parse(JSON.stringify(input))); return completed; },
-      startVideoProgress: async (value) => { starts.push(value); return true; },
+      saveVideoProgress: async (input) => { saved.push(JSON.parse(JSON.stringify(input))); return options.saveRequest ? options.saveRequest() : completed; },
+      startVideoProgress: async (value) => { starts.push(value); return options.startRequest ? options.startRequest() : true; },
     },
   }, { window, document, Date: { now: () => now } });
   const result = hook.useYouTubeVideoTracking({
@@ -218,7 +218,7 @@ async function trackingHarness(options = {}, apiAvailable = true) {
   await Promise.resolve();
   await Promise.resolve();
   const player = players[0];
-  const settle = async () => { await Promise.resolve(); await Promise.resolve(); };
+  const settle = async () => { await new Promise(setImmediate); };
   return {
     player, container, states, saved, starts, document, window, timeouts,
     ready: () => player.config.events.onReady(),
@@ -275,6 +275,53 @@ test("records viewing, excludes a seek, and only reports server-confirmed comple
   await h.flush();
   assert.equal(h.completedCalls(), 1);
   await h.cleanup();
+});
+
+test("YouTube terminal flush waits for start and preserves progress made during a pending save", async () => {
+  let start;
+  let save;
+  let saves = 0;
+  const h = await trackingHarness({
+    startRequest: () => new Promise((resolve) => { start = resolve; }),
+    saveRequest: () => ++saves === 1 ? new Promise((resolve) => { save = resolve; }) : true,
+  });
+  h.ready();
+  h.state(1);
+  await h.tick(1);
+  await h.flush();
+  assert.equal(h.saved.length, 0);
+  start(true);
+  await h.settle();
+  await h.tick(2);
+  h.state(0);
+  save(false);
+  await h.settle();
+  assert.equal(h.saved.length, 2);
+  assert.deepEqual(h.saved[1].watchedRanges, [[0, 2]]);
+  assert.equal(h.completedCalls(), 1);
+  await h.cleanup();
+});
+
+test("readonly YouTube permits playback and replay without any progress writes", async () => {
+  const h = await trackingHarness({ readOnly: true, initialPosition: 12, initialRanges: [[0, 12]] });
+  h.ready();
+  assert.equal(h.player.position, 12);
+  h.state(1);
+  await h.tick(13);
+  await h.flush();
+  h.state(2);
+  h.visibility("hidden");
+  h.visibility("visible");
+  h.replay();
+  assert.equal(h.player.position, 0);
+  assert.equal(h.player.playRequested, true);
+  h.state(1);
+  await h.tick(1);
+  h.state(0);
+  await h.cleanup();
+  assert.equal(h.starts.length, 0);
+  assert.equal(h.saved.length, 0);
+  assert.equal(h.completedCalls(), 0);
 });
 
 test("completed YouTube videos start at zero and can replay without clearing watched ranges", async () => {

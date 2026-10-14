@@ -430,7 +430,6 @@ export async function getEmployeeCourseModule(
     (progress) => progress.module_id,
   );
   const visibleExamIds = [...(examData ?? []), ...(courseExamData ?? [])]
-    .filter((exam) => exam.blocks_progress)
     .map((exam) => exam.id);
   const { data: passedExamData, error: passedExamError } = visibleExamIds.length
     ? await supabase

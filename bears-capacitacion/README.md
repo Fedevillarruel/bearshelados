@@ -66,6 +66,35 @@ Las migraciones son el historial para instalaciones incrementales. En un entorno
 
 No ejecutes nuevamente `setup-completo.sql` sobre una instalación existente.
 
+## Compras y Ventas (administración)
+
+El sidebar incluye un acordeón **Compras y Ventas** exclusivamente para el rol
+`admin`, accesible también desde **Menú** en dispositivos móviles. Las rutas
+`/admin/compras-ventas` y `/admin/compras-ventas/[section]` comprueban el rol en
+el servidor, además de la protección existente del middleware.
+
+Las secciones disponibles son Resumen, Ventas, Stock por local, Productos y
+recetas, Pedidos y reposición, Compras, Rentabilidad, Proyecciones e Integración
+Odoo. El resumen y el inventario consultan la lista real de franquicias mediante
+el cliente autenticado de Supabase y permiten filtrar por local y estado. Los
+contadores del resumen describen la red completa; los filtros afectan la lista
+de locales. Los errores de consulta se muestran con una opción para reintentar.
+
+Esta entrega implementa la interfaz y navegación, **no la integración Odoo ni
+un registro transaccional de stock**. No guarda credenciales, recetas, gastos,
+compras o pedidos; tampoco importa ventas, calcula rentabilidad o emite
+pronósticos. Los indicadores operativos pendientes se muestran sin valores,
+no como cero ni con datos de ejemplo. No requiere migraciones nuevas.
+
+**Integración Odoo** incluye un cuestionario copiable para sistemas sobre
+versión, edición, alojamiento, plan, bases por franquicia, POS, módulos,
+histórico, inventario y permisos. Las credenciales deberán entregarse por un
+canal seguro y mantenerse exclusivamente del lado del servidor. El alcance
+inicial previsto es de solo lectura; cualquier emisión de órdenes requiere
+definir y validar las aprobaciones.
+
+Validación específica: `node --test tests/commerce.test.mjs`.
+
 ## Variables de entorno
 
 ```dotenv
@@ -161,6 +190,12 @@ http://localhost:3000/auth/callback
 4. Aplicá las migraciones correctas para el estado del proyecto antes de desplegar.
 5. Probá login, rotación obligatoria de contraseña, roles y una autorización OAuth real antes de habilitar reportes comerciales.
 
+## Selector de vista del administrador
+
+El header muestra **Vista administrador** únicamente a cuentas con rol administrador. El dropdown permite buscar por email con la lupa; la lista se filtra mientras se escribe e incluye empleados y franquiciados activos. Elegir un email carga el menú, los cursos, el progreso y, para franquiciados, el equipo y los manuales de ese usuario. **Vista administrador** vuelve al panel administrativo.
+
+La vista seleccionada persiste durante la navegación por hasta ocho horas y se limpia al cerrar o iniciar sesión. Es de **solo lectura**: reproducir videos o explorar evaluaciones no crea intentos, no guarda respuestas y no altera el progreso ni el historial de descargas del usuario. Los reportes y manuales respetan la franquicia y el rol seleccionados. La identidad autenticada y los permisos administrativos no se reemplazan por los del usuario observado.
+
 ## Verificación
 
 ```bash
@@ -169,6 +204,37 @@ npm run test:youtube
 npm run test:auth
 npm run test:video
 npm run test:duration
+node --test tests/preview.test.mjs
 ```
 
 La aplicación no muestra información operativa cuando Supabase no está configurado. Los flujos de usuarios, cursos, manuales, reportes y Tiendanube requieren una configuración válida de Supabase.
+
+## Finalización de módulos y cursos
+
+La migración `021_completion_authority.sql` reemplaza el cálculo de progreso de `014` y el refresco de video de `016`. Si un módulo publicado tiene evaluaciones activas, se completa al **aprobar todas**, incluidas las no bloqueantes: entregar o desaprobar no alcanza. La aprobación es la autoridad y no depende de terminar videos ni abrir recursos. Una aprobación previa sigue siendo válida aunque un intento posterior sea desaprobado. Las evaluaciones inactivas no cuentan.
+
+Sin evaluaciones activas, se conserva la regla de completar todos los videos (90% de rangos vistos, confirmado por el servidor) y consultar todos los recursos del módulo. Las evaluaciones con `blocks_progress` siguen bloqueando el acceso a los módulos siguientes hasta aprobarse; una evaluación no bloqueante pendiente impide completar su módulo, pero no navegar al siguiente.
+
+El curso se completa cuando todos sus módulos publicados están completos y sus evaluaciones finales activas bloqueantes están aprobadas. Si sólo falta una evaluación final obligatoria, se muestra 99%, estado `en_progreso` y ninguna fecha de finalización; al aprobarla pasa a 100% y `completado`. Un curso sin módulos publicados permanece sin completar. La migración recalcula **todos los enrollments existentes**, incluidos asignados y previamente completados, corrige estados/fechas obsoletos y conserva las fechas de finalización que siguen siendo válidas. No requiere volver a mirar videos ni rendir evaluaciones ya aprobadas.
+
+El seguimiento espera a que el servidor registre el inicio antes de guardar, conserva el último avance si termina la reproducción durante un guardado y refresca la pantalla sólo tras confirmar la finalización. El video nativo muestrea durante la reproducción (también a 2x), retoma el seguimiento al volver a una pestaña visible y no agrega segundos ficticios al finalizar después de saltar. YouTube conserva su muestreo y las mismas garantías de guardado. La API mantiene el control temporal del avance (hasta 2x, con tope por guardado), rechaza duraciones inválidas y nunca desmarca un video ya completado al repetirlo. Un guardado `completed=true` también repara progreso derivado obsoleto mediante trigger.
+
+Verificación enfocada sin credenciales ni base remota:
+
+```bash
+node --test tests/completion.test.mjs tests/video.test.mjs tests/youtube.test.mjs
+npx tsc --noEmit --incremental false
+npx eslint src/lib/platform/employee.ts src/hooks/use-video-tracking.ts src/hooks/use-youtube-video-tracking.ts src/components/learning/native-video.tsx src/components/learning/youtube-video.tsx src/app/api/video-progress/route.ts tests/completion.test.mjs tests/video.test.mjs tests/youtube.test.mjs
+```
+
+La regresión SQL ejecutable usa PostgreSQL embebido en memoria (PGlite), sin conectarse a Supabase. Para habilitarla sin modificar dependencias del proyecto:
+
+```bash
+npm install --prefix .completion-validation --no-save --package-lock=false --ignore-scripts --no-audit --no-fund @electric-sql/pglite
+COMPLETION_PGLITE_PATH=.completion-validation/node_modules/@electric-sql/pglite/dist/index.js node --test tests/completion.test.mjs tests/video.test.mjs tests/youtube.test.mjs
+rm -rf .completion-validation
+```
+
+Sin `COMPLETION_PGLITE_PATH` se omite explícitamente sólo la prueba SQL; las regresiones de API, cliente y reproductores siguen ejecutándose. La prueba SQL aplica las funciones/triggers históricos de `014`/`016` y el trigger de evaluaciones, siembra progreso inconsistente y aplica `021`; verifica backfill completo, múltiples evaluaciones, aprobación versus entrega, recursos, examen final, fechas/idempotencia y refresco de videos ya completados. Aplicar la migración en producción queda como paso separado del despliegue.
+
+En vista administrativa de solo lectura, ambos reproductores de cursos aceptan `readOnly`: no montan el registro de recursos ni envían inicio/avance de video. Los videos nativos y YouTube siguen disponibles para reproducir, retomar y volver a ver, sin cambiar rangos ni disparar finalizaciones. Las pruebas verifican la propagación de la opción y ausencia de escrituras incluso al pausar, finalizar, cambiar de pestaña y desmontar.

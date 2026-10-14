@@ -12,6 +12,7 @@ type YouTubeVideoTrackingOptions = {
   initialPosition?: number;
   initialRanges?: WatchedRange[];
   initiallyCompleted?: boolean;
+  readOnly?: boolean;
   onCompleted?: () => void;
 };
 
@@ -22,6 +23,7 @@ export function useYouTubeVideoTracking({
   initialPosition = 0,
   initialRanges = [],
   initiallyCompleted = false,
+  readOnly = false,
   onCompleted,
 }: YouTubeVideoTrackingOptions) {
   const playerElementRef = useRef<HTMLDivElement>(null);
@@ -46,6 +48,16 @@ export function useYouTubeVideoTracking({
     let lastObservedAt = Date.now();
     let playing = false;
     let pending = false;
+    let flushRequested = false;
+    let startRequest: Promise<boolean> | null = null;
+    const ensureStarted = () => {
+      if (readOnly) return Promise.resolve(false);
+      startRequest ??= startVideoProgress(assetId).then((started) => {
+        if (!started) startRequest = null;
+        return started;
+      });
+      return startRequest;
+    };
     let completionReported = initiallyCompleted;
     const container = playerElementRef.current;
     if (!container) return;
@@ -67,7 +79,7 @@ export function useYouTubeVideoTracking({
       return typeof position === "number" && Number.isFinite(position) ? position : null;
     };
     const recordProgress = () => {
-      if (!playing || document.visibilityState !== "visible") return;
+      if (readOnly || !playing || document.visibilityState !== "visible") return;
       const position = currentPosition();
       if (position === null) return;
       const elapsed = position - lastObserved;
@@ -80,18 +92,26 @@ export function useYouTubeVideoTracking({
       lastObservedAt = now;
     };
     const flush = async () => {
-      if (pending || ranges.length === 0) return;
+      if (readOnly || ranges.length === 0) return;
+      if (pending) {
+        flushRequested = true;
+        return;
+      }
       pending = true;
       try {
-        const completed = await saveVideoProgress({
-          assetId,
-          lastPosition: Math.floor(currentPosition() ?? lastObserved),
-          watchedRanges: ranges,
-        });
-        if (completed && !completionReported && !disposed) {
-          completionReported = true;
-          onCompletedRef.current?.();
-        }
+        if (!await ensureStarted()) return;
+        do {
+          flushRequested = false;
+          const completed = await saveVideoProgress({
+            assetId,
+            lastPosition: Math.floor(currentPosition() ?? lastObserved),
+            watchedRanges: ranges,
+          });
+          if (completed && !completionReported && !disposed) {
+            completionReported = true;
+            onCompletedRef.current?.();
+          }
+        } while (flushRequested);
       } finally {
         pending = false;
       }
@@ -153,7 +173,7 @@ export function useYouTubeVideoTracking({
               const position = currentPosition();
               if (position !== null) lastObserved = position;
               lastObservedAt = Date.now();
-              void startVideoProgress(assetId);
+              if (!readOnly) void ensureStarted();
             } else pauseTracking();
           },
           onError: (event) => {
@@ -183,11 +203,12 @@ export function useYouTubeVideoTracking({
       window.clearTimeout(unavailableTimeout);
       recordProgress();
       void flush();
+      playerReady = false;
       document.removeEventListener("visibilitychange", onVisibilityChange);
       player?.destroy();
       container.replaceChildren();
     };
-  }, [assetId, durationSeconds, videoId]);
+  }, [assetId, durationSeconds, videoId, readOnly]);
 
   return { playerElementRef, isReady, error, replayVideo: () => replayRef.current?.() };
 }

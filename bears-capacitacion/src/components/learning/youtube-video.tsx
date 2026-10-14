@@ -1,14 +1,17 @@
 "use client";
 
 import { ExternalLink, PlayCircle, RotateCcw } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useYouTubeVideoTracking } from "@/hooks/use-youtube-video-tracking";
 import type { EmployeeAsset } from "@/lib/platform/employee";
 
-export function YouTubeVideo({ asset, videoId, onCompleted }: {
+export function YouTubeVideo({ asset, videoId, onCompleted, readOnly = false }: {
   asset: EmployeeAsset;
   videoId: string;
   onCompleted?: () => void;
+  readOnly?: boolean;
 }) {
+  const router = useRouter();
   const { playerElementRef, isReady, error, replayVideo } = useYouTubeVideoTracking({
     assetId: asset.id,
     videoId,
@@ -16,7 +19,8 @@ export function YouTubeVideo({ asset, videoId, onCompleted }: {
     initialPosition: asset.progress?.last_position ?? 0,
     initialRanges: asset.progress?.watched_ranges ?? [],
     initiallyCompleted: asset.isCompleted,
-    onCompleted,
+    readOnly,
+    onCompleted: onCompleted ?? (() => router.refresh()),
   });
 
   return (

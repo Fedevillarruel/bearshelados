@@ -18,7 +18,7 @@ function Question({ question, index, selectedOptionId, onSelect, prefix }: { que
   return <fieldset className="border border-line bg-paper p-5 sm:p-6"><legend className="sr-only">Pregunta {index + 1}</legend><p className="font-tabular text-xs text-muted">PREGUNTA {String(index + 1).padStart(2, "0")}</p><p className="mt-3 text-lg font-medium leading-7">{question.prompt}</p><div className="mt-6 grid gap-3">{question.options.map((option) => { const id = `${prefix}-${question.id}-${option.id}`; return <label className={`flex min-h-12 cursor-pointer items-center gap-3 border px-4 py-3 text-sm transition-colors ${selectedOptionId === option.id ? "border-jade bg-[#E0F1EB]" : "hover:bg-surface"}`} htmlFor={id} key={option.id}><input id={id} name={`${prefix}-${question.id}`} type="radio" className="size-4 accent-jade" checked={selectedOptionId === option.id} onChange={() => onSelect(question.id, option.id)} /><span>{option.label}</span></label>; })}</div></fieldset>;
 }
 
-export function ExamPlayer({ exam: sourceExam }: { exam: EmployeeExam }) {
+export function ExamPlayer({ exam: sourceExam, readOnly = false }: { exam: EmployeeExam; readOnly?: boolean }) {
   const attemptLimit = sourceExam.max_attempts ? `${sourceExam.max_attempts}` : "Sin límite";
   const exam = {
     ...sourceExam,
@@ -47,6 +47,10 @@ export function ExamPlayer({ exam: sourceExam }: { exam: EmployeeExam }) {
   }
 
   function begin() {
+    if (readOnly) {
+      setError("La vista del administrador es de solo lectura. No se inician intentos ni se modifican evaluaciones.");
+      return;
+    }
     setError(null);
     setPending(true);
     startTransition(async () => {
@@ -90,6 +94,15 @@ export function ExamPlayer({ exam: sourceExam }: { exam: EmployeeExam }) {
       setConfirming(false);
     });
   }
+
+  if (readOnly) return <main className="min-h-screen bg-surface px-5 py-10">
+    <section className="mx-auto max-w-3xl space-y-5">
+      <Link href="/cursos/mis-cursos" className="inline-flex items-center gap-2 text-sm text-muted hover:text-ink"><ChevronLeft className="size-4" aria-hidden="true" />Volver a mis cursos</Link>
+      <h1 className="text-[31px] font-medium">{exam.title}</h1>
+      <p className="text-sm text-muted">Vista previa de la evaluación. Podés explorar las preguntas sin iniciar un intento ni guardar respuestas.</p>
+      {exam.questions.map((question, index) => <Question key={question.id} question={question} index={index} selectedOptionId={answers[question.id] ?? null} onSelect={selectAnswer} prefix="preview" />)}
+    </section>
+  </main>;
 
   if (result) return <main className="min-h-screen bg-surface px-5 py-10"><section className="mx-auto max-w-2xl border border-line bg-paper p-6 sm:p-8"><div className={`grid size-12 items-center justify-center rounded-full ${result.passed ? "bg-[#E0F1EB] text-jade-deep" : "bg-[#FCEAE6] text-alert"}`}>{result.passed ? <CheckCircle2 className="size-6" aria-hidden="true" /> : <XCircle className="size-6" aria-hidden="true" />}</div><p className="mt-6 font-tabular text-xs text-muted">RESULTADO</p><h1 className="mt-2 text-[31px] font-medium leading-tight">{result.expired ? "Se terminó el tiempo" : result.passed ? "Aprobaste la evaluación" : "Todavía no aprobaste"}</h1><p className="mt-3 text-sm leading-6 text-muted">{result.expired ? "El intento se registró como no aprobado." : result.completion ? "Completaste todas las instancias del curso. ¡Felicitaciones!" : result.passed ? "Tu resultado quedó registrado en tu progreso." : `Necesitás ${result.requiredScore}% para aprobar.`}</p>{result.completionCheckError ? <p className="mt-3 rounded-sm bg-[#FCEAE6] px-3 py-2 text-sm text-alert" role="alert">{result.completionCheckError}</p> : null}<div className="mt-8 grid grid-cols-2 border border-line"><div className="p-5"><p className="text-xs text-muted">Tu nota</p><p className="font-tabular mt-2 text-3xl font-medium">{result.score}%</p></div><div className="border-l border-line p-5"><p className="text-xs text-muted">Intentos restantes</p><p className="font-tabular mt-2 text-3xl font-medium">{result.attemptsRemaining ?? "Sin límite"}</p></div></div>{result.review.length ? <section className="mt-8 space-y-4"><h2 className="text-lg font-medium">Revisión</h2>{result.review.map((item, index) => { const question = exam.questions.find((candidate) => candidate.id === item.questionId); const correct = question?.options.find((option) => option.id === item.correctOptionId); const selected = question?.options.find((option) => option.id === item.selectedOptionId); return <article className="border border-line p-4" key={item.questionId}><p className="font-tabular text-xs text-muted">PREGUNTA {index + 1}</p><p className="mt-2 text-sm font-medium">{question?.prompt}</p><p className="mt-3 text-sm text-muted">Tu respuesta: {selected?.label ?? "Sin responder"}</p><p className="mt-1 text-sm text-jade-deep">Respuesta correcta: {correct?.label ?? "No disponible"}</p>{item.explanation ? <p className="mt-3 text-sm leading-6 text-muted">{item.explanation}</p> : null}</article>; })}</section> : null}<Link href="/cursos/progreso" className="mt-8 inline-flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep">Ver mi progreso <ChevronRight className="size-4" aria-hidden="true" /></Link></section>{result.completion && showCompletion ? <CourseCompletionModal certificate={result.completion} onClose={() => setShowCompletion(false)} /> : null}</main>;
 

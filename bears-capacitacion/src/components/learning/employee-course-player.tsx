@@ -26,12 +26,12 @@ function contentText(value: string) {
     .trim();
 }
 
-function AssetContent({ asset }: { asset: EmployeeAsset }) {
+function AssetContent({ asset, readOnly }: { asset: EmployeeAsset; readOnly: boolean }) {
   if (asset.type === "video") {
     const videoId = getYouTubeVideoId(asset.url);
-    if (videoId) return <YouTubeVideo key={asset.id} asset={asset} videoId={videoId} />;
+    if (videoId) return <YouTubeVideo key={asset.id} asset={asset} videoId={videoId} readOnly={readOnly} />;
     if (isYouTubeUrl(asset.url)) return <p role="alert">Este enlace de YouTube no identifica un video reproducible.</p>;
-    return <NativeVideo key={asset.id} asset={asset} />;
+    return <NativeVideo key={asset.id} asset={asset} readOnly={readOnly} />;
   }
   if (asset.type === "pdf")
     return (
@@ -91,7 +91,7 @@ function AssetContent({ asset }: { asset: EmployeeAsset }) {
   );
 }
 
-export function EmployeeCoursePlayer({ data }: { data: EmployeeCourseModule }) {
+export function EmployeeCoursePlayer({ data, readOnly = false }: { data: EmployeeCourseModule; readOnly?: boolean }) {
   const moduleNumber =
     data.modules.findIndex((module) => module.id === data.currentModule.id) + 1;
   const coursePath = `/cursos/${data.course.slug}/modulos`;
@@ -154,7 +154,7 @@ export function EmployeeCoursePlayer({ data }: { data: EmployeeCourseModule }) {
           <div className="mt-8 space-y-6">
             {data.assets.length ? (
               data.assets.map((asset) => (
-                <AssetContent asset={asset} key={asset.id} />
+                <AssetContent asset={asset} key={asset.id} readOnly={readOnly} />
               ))
             ) : (
               <section className="border border-dashed border-line bg-surface p-6">

@@ -1,5 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { ADMIN_PREVIEW_COOKIE, isPreviewRole } from "@/lib/auth/preview";
+import { databaseUuid } from "@/lib/validations/ids";
 
 const protectedRoutes = ["/admin", "/franquicia", "/cursos"];
 
@@ -60,15 +62,30 @@ export async function middleware(request: NextRequest) {
     return redirectWithSession(url);
   }
 
+  let portalRole = profile.role;
+  const previewId = request.cookies.get(ADMIN_PREVIEW_COOKIE)?.value;
+  if (profile.role === "admin" && databaseUuid.safeParse(previewId).success) {
+    const { data: target, error } = await supabase.from("profiles")
+      .select("role, is_active")
+      .eq("id", previewId!)
+      .maybeSingle();
+    if (error) {
+      const unavailable = NextResponse.json({ error: "No pudimos verificar la vista seleccionada." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+      response.cookies.getAll().forEach((cookie) => unavailable.cookies.set(cookie));
+      return unavailable;
+    }
+    if (target?.is_active && isPreviewRole(target.role)) portalRole = target.role;
+  }
+
   const invalidRoute =
     (pathname.startsWith("/admin") && profile.role !== "admin") ||
     (pathname.startsWith("/admin/tiendanube") && !profile.is_super_admin) ||
-    (pathname.startsWith("/franquicia") && profile.role !== "franquiciado") ||
-    (pathname.startsWith("/cursos") && !["empleado", "franquiciado"].includes(profile.role));
+    (pathname.startsWith("/franquicia") && portalRole !== "franquiciado") ||
+    (pathname.startsWith("/cursos") && !["empleado", "franquiciado"].includes(portalRole));
 
   if (invalidRoute) {
     const url = request.nextUrl.clone();
-    url.pathname = profile.role === "admin" ? "/admin/dashboard" : profile.role === "franquiciado" ? "/franquicia/dashboard" : "/cursos/mis-cursos";
+    url.pathname = portalRole === "admin" ? "/admin/dashboard" : portalRole === "franquiciado" ? "/franquicia/dashboard" : "/cursos/mis-cursos";
     return redirectWithSession(url);
   }
 

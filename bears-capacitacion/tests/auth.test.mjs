@@ -12,6 +12,11 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const requireDependency = createRequire(import.meta.url);
 
 function loadModule(relativePath, mocks, globals = {}) {
+  mocks = {
+    "@/lib/auth/preview": { ADMIN_PREVIEW_COOKIE: "bears-admin-preview", isPreviewRole: (role) => ["empleado", "franquiciado"].includes(role) },
+    "@/lib/validations/ids": { databaseUuid: z.string().uuid() },
+    ...mocks,
+  };
   const source = fs.readFileSync(path.join(root, relativePath), "utf8");
   const { outputText } = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
@@ -133,6 +138,7 @@ test("profile failures and zero-row updates are explicit partial failures, not r
 function cookieStore(initial = []) {
   const values = new Map(initial.map((cookie) => [cookie.name, cookie]));
   return {
+    get: (name) => values.get(name),
     getAll: () => [...values.values()],
     set: (name, value, options) => {
       const cookie = typeof name === "string" ? { name, value, ...options } : name;

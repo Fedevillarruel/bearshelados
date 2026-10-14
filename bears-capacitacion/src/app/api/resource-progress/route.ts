@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getViewer } from "@/lib/auth/roles";
+import { getViewer, hasAdminPreview } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
 import { databaseUuid } from "@/lib/validations/ids";
 
@@ -31,6 +31,7 @@ export async function POST(request: Request) {
   }
   const parsed = payloadSchema.safeParse(body);
   if (!parsed.success) return json({ error: "Progreso de contenido inválido." }, 400);
+  if (await hasAdminPreview()) return json({ error: "La vista del administrador es de solo lectura." }, 403);
 
   const viewer = await getViewer();
   if (!viewer) return json({ error: "Sesión requerida." }, 401);

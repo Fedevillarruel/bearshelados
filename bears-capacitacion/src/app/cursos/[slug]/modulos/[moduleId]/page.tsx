@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { AdaptiveCoursePlayer } from "@/components/learning/adaptive-course-player";
 import { CoursePlayer } from "@/components/portal/portal-shell";
-import { requireRole } from "@/lib/auth/roles";
+import { requirePortalRole } from "@/lib/auth/roles";
+import { PortalLayout } from "@/components/portal/portal-layout";
 import { getEmployeeCourseModule } from "@/lib/platform/employee";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -12,10 +13,12 @@ type CourseModulePageProps = {
 export default async function CourseModulePage({ params }: CourseModulePageProps) {
 	if (!isSupabaseConfigured()) return <CoursePlayer />;
 
-	const viewer = await requireRole(["empleado", "franquiciado"]);
+	const viewer = await requirePortalRole(["empleado", "franquiciado"]);
 	const { slug, moduleId } = await params;
 	const data = await getEmployeeCourseModule(viewer, slug, moduleId);
 	if (!data) notFound();
 
-	return <AdaptiveCoursePlayer data={data} />;
+	return viewer.previewAdminId
+		? <PortalLayout viewer={viewer} activeKey="learning"><AdaptiveCoursePlayer data={data} readOnly /></PortalLayout>
+		: <AdaptiveCoursePlayer data={data} />;
 }

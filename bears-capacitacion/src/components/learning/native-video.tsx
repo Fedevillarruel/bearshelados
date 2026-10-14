@@ -6,9 +6,10 @@ import { PlayCircle, RotateCcw } from "lucide-react";
 import { useVideoTracking } from "@/hooks/use-video-tracking";
 import type { EmployeeAsset } from "@/lib/platform/employee";
 
-export function NativeVideo({ asset, onCompleted }: {
+export function NativeVideo({ asset, onCompleted, readOnly = false }: {
   asset: EmployeeAsset;
   onCompleted?: () => void;
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +19,8 @@ export function NativeVideo({ asset, onCompleted }: {
     initialPosition: asset.progress?.last_position ?? 0,
     initialRanges: asset.progress?.watched_ranges ?? [],
     initiallyCompleted: asset.isCompleted,
-    onCompleted,
+    readOnly,
+    onCompleted: onCompleted ?? (() => router.refresh()),
   });
 
   async function replay() {

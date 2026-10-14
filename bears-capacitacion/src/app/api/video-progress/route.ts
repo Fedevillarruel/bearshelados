@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { mergeRanges, watchedSeconds } from "@/lib/video-ranges";
-import { getViewer } from "@/lib/auth/roles";
+import { getViewer, hasAdminPreview } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
 import { databaseUuid } from "@/lib/validations/ids";
 
@@ -38,6 +38,7 @@ export async function POST(request: Request) {
   }
   const parsed = payloadSchema.safeParse(body);
   if (!parsed.success) return json({ error: "Progreso de video inválido." }, 400);
+  if (await hasAdminPreview()) return json({ error: "La vista del administrador es de solo lectura." }, 403);
 
   const viewer = await getViewer();
   if (!viewer) return json({ error: "Sesión requerida." }, 401);
@@ -50,6 +51,9 @@ export async function POST(request: Request) {
   if (!asset) return json({ error: "No tenés acceso a este video." }, 403);
 
   const duration = asset.duration_seconds;
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return json({ error: "El video no tiene una duración válida configurada." }, 422);
+  }
   if (parsed.data.event === "start") {
     const { error } = await supabase.from("video_progress").upsert({
       user_id: viewer.id,
@@ -64,11 +68,12 @@ export async function POST(request: Request) {
   const safeClientRanges = parsed.data.watchedRanges.map(([start, end]) => [
     Math.min(start, duration), Math.min(end, duration),
   ] as [number, number]);
-  const { data: current } = await supabase.from("video_progress")
-    .select("watched_ranges, updated_at")
+  const { data: current, error: progressError } = await supabase.from("video_progress")
+    .select("watched_ranges, updated_at, completed")
     .eq("asset_id", asset.id)
     .eq("user_id", viewer.id)
     .maybeSingle();
+  if (progressError) return json({ error: "No pudimos consultar el progreso." }, 500);
   if (!current) return json({ error: "Iniciá la reproducción antes de guardar el avance." }, 409);
 
   const storedRanges = Array.isArray(current?.watched_ranges) ? current.watched_ranges as [number, number][] : [];
@@ -76,11 +81,11 @@ export async function POST(request: Request) {
   const storedSeconds = watchedSeconds(storedRanges);
   const secondsWatched = watchedSeconds(ranges);
   const elapsedSeconds = Math.max(0, (Date.now() - new Date(current.updated_at).getTime()) / 1_000);
-  const allowedAdvance = Math.min(45, Math.max(5, elapsedSeconds + 5));
+  const allowedAdvance = Math.min(45, Math.max(5, elapsedSeconds * 2 + 5));
   if (secondsWatched - storedSeconds > allowedAdvance) {
     return json({ error: "El avance informado no coincide con el tiempo de reproducción." }, 422);
   }
-  const completed = secondsWatched >= duration * 0.9;
+  const completed = current.completed || secondsWatched >= duration * 0.9;
   const highestWatchedPosition = ranges.at(-1)?.[1] ?? 0;
   const { error } = await supabase.from("video_progress").upsert({
     user_id: viewer.id,

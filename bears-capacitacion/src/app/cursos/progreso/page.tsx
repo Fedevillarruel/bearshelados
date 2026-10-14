@@ -3,7 +3,7 @@ import { BookOpen, ChevronRight, ClipboardCheck } from "lucide-react";
 import { CertificateDownload } from "@/components/learning/certificate-download";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { PortalLayout } from "@/components/portal/portal-layout";
-import { requireRole } from "@/lib/auth/roles";
+import { requirePortalRole } from "@/lib/auth/roles";
 import { getEmployeeProgress } from "@/lib/platform/employee";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -14,7 +14,7 @@ function formatDate(date: string | null) {
 export default async function MyProgressPage() {
 	if (!isSupabaseConfigured()) return <PortalShell role="empleado" view="progress" />;
 
-	const viewer = await requireRole(["empleado", "franquiciado"]);
+	const viewer = await requirePortalRole(["empleado", "franquiciado"]);
 	const courses = await getEmployeeProgress(viewer);
 	const completed = courses.filter((course) => course.enrollment.status === "completado").length;
 

@@ -8,6 +8,8 @@ import { getConfiguredSiteUrl } from "@/lib/site-url";
 import { createUserSchema, signInSchema } from "@/lib/validations/auth";
 import { databaseUuid } from "@/lib/validations/ids";
 import { z } from "zod";
+import { cookies } from "next/headers";
+import { ADMIN_PREVIEW_COOKIE } from "@/lib/auth/preview";
 
 export type ActionState = { error?: string; success?: string };
 
@@ -102,12 +104,14 @@ export async function signIn(_: ActionState, formData: FormData): Promise<Action
 
   const viewer = await getViewer();
   if (!viewer) return { error: "Tu usuario no tiene un perfil activo en la plataforma." };
+  (await cookies()).delete(ADMIN_PREVIEW_COOKIE);
   redirect(defaultRouteForRole(viewer.role));
 }
 
 export async function signOut() {
   const supabase = await createClient();
   await supabase.auth.signOut();
+  (await cookies()).delete(ADMIN_PREVIEW_COOKIE);
   redirect("/login");
 }
 

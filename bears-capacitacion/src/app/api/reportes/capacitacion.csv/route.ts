@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getViewer } from "@/lib/auth/roles";
+import { getPortalViewer } from "@/lib/auth/roles";
 import { getTrainingOverview } from "@/lib/platform/reporting";
 
 function csvCell(value: string | number | null) {
@@ -9,7 +9,7 @@ function csvCell(value: string | number | null) {
 }
 
 export async function GET() {
-  const viewer = await getViewer();
+  const viewer = await getPortalViewer();
   if (!viewer || (viewer.role !== "admin" && viewer.role !== "franquiciado")) {
     return NextResponse.json({ error: "No tenés permiso para exportar este reporte." }, { status: 403, headers: { "Cache-Control": "no-store" } });
   }

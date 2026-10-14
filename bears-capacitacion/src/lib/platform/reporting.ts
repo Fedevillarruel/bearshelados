@@ -146,7 +146,9 @@ export async function getTrainingOverview({ franchiseId }: { franchiseId?: strin
   const [{ data: profileData }, { data: courseData }, { data: franchiseData }] = await Promise.all([
     profilesQuery,
     supabase.from("courses").select("id, title").eq("is_published", true).order("order_index"),
-    supabase.from("franchises").select("id, name, code, city, is_active").order("name"),
+    franchiseId
+      ? supabase.from("franchises").select("id, name, code, city, is_active").eq("id", franchiseId).order("name")
+      : supabase.from("franchises").select("id, name, code, city, is_active").order("name"),
   ]);
 
   const profiles = (profileData ?? []) as ProfileRow[];

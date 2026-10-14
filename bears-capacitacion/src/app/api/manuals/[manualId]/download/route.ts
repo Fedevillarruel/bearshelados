@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getViewer } from "@/lib/auth/roles";
+import { getPortalViewer } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
 import { databaseUuid } from "@/lib/validations/ids";
 
@@ -8,7 +8,7 @@ function json(body: Record<string, string>, status: number) {
 }
 
 export async function GET(_: Request, { params }: { params: Promise<{ manualId: string }> }) {
-  const viewer = await getViewer();
+  const viewer = await getPortalViewer();
   if (!viewer || (viewer.role !== "admin" && viewer.role !== "franquiciado")) {
     return json({ error: "No tenés permiso para descargar manuales." }, 403);
   }
@@ -18,17 +18,18 @@ export async function GET(_: Request, { params }: { params: Promise<{ manualId: 
 
   const supabase = await createClient();
   const { data: manual } = await supabase.from("manuals")
-    .select("id, storage_path")
+    .select("id, storage_path, visible_to")
     .eq("id", manualId)
     .single();
   if (!manual?.storage_path) return json({ error: "El archivo no está disponible." }, 404);
+  if (viewer.previewAdminId && !manual.visible_to.includes(viewer.role)) return json({ error: "Este manual no es visible para el usuario seleccionado." }, 403);
 
   const { data: signedFile, error } = await supabase.storage
     .from("manuals")
     .createSignedUrl(manual.storage_path, 60);
   if (error || !signedFile) return json({ error: "No pudimos preparar el archivo." }, 500);
 
-  await supabase.from("manual_downloads").insert({ manual_id: manual.id, user_id: viewer.id });
+  if (!viewer.previewAdminId) await supabase.from("manual_downloads").insert({ manual_id: manual.id, user_id: viewer.id });
   const response = NextResponse.redirect(signedFile.signedUrl);
   response.headers.set("Cache-Control", "no-store");
   return response;

@@ -78,11 +78,11 @@ function UnsupportedYouTubeVideo({ asset }: { asset: EmployeeAsset }) {
   return <section className="overflow-hidden bg-ink text-white"><a className="flex aspect-video flex-col items-center justify-center gap-3 px-5 text-center text-sm font-medium hover:underline" href={asset.url} target="_blank" rel="noreferrer"><ExternalLink className="size-5" aria-hidden="true" /><span>Este enlace de YouTube no identifica un video reproducible.</span><span>Abrir en YouTube</span></a><div className="flex items-center justify-between gap-4 border-t border-white/15 px-4 py-3 text-sm text-white/80"><span className="flex min-w-0 items-center gap-2"><PlayCircle className="size-4 shrink-0" aria-hidden="true" /><span className="truncate">{asset.title}</span></span><span className="font-tabular shrink-0">{formatMinutes(asset.duration_seconds)}</span></div></section>;
 }
 
-function TrackedVideo({ asset, onCompleted }: { asset: EmployeeAsset; onCompleted: () => void }) {
+function TrackedVideo({ asset, onCompleted, readOnly }: { asset: EmployeeAsset; onCompleted: () => void; readOnly: boolean }) {
   const youTubeVideoId = getYouTubeVideoId(asset.url);
-  if (youTubeVideoId) return <YouTubeVideo key={asset.id} asset={asset} videoId={youTubeVideoId} onCompleted={onCompleted} />;
+  if (youTubeVideoId) return <YouTubeVideo key={asset.id} asset={asset} videoId={youTubeVideoId} onCompleted={onCompleted} readOnly={readOnly} />;
   if (isYouTubeUrl(asset.url)) return <UnsupportedYouTubeVideo asset={asset} />;
-  return <NativeVideo key={asset.id} asset={asset} onCompleted={onCompleted} />;
+  return <NativeVideo key={asset.id} asset={asset} onCompleted={onCompleted} readOnly={readOnly} />;
 }
 
 function ResourceProgressRecorder({ asset, onRecorded }: { asset: EmployeeAsset | undefined; onRecorded: () => void }) {
@@ -122,8 +122,8 @@ function DownloadResource({ asset, label }: { asset: EmployeeAsset; label: strin
   );
 }
 
-function AssetStage({ asset, onAssetCompleted }: { asset: EmployeeAsset; onAssetCompleted: () => void }) {
-  if (asset.type === "video") return <TrackedVideo asset={asset} onCompleted={onAssetCompleted} />;
+function AssetStage({ asset, onAssetCompleted, readOnly }: { asset: EmployeeAsset; onAssetCompleted: () => void; readOnly: boolean }) {
+  if (asset.type === "video") return <TrackedVideo asset={asset} onCompleted={onAssetCompleted} readOnly={readOnly} />;
   if (asset.type === "pdf") {
     if (!canPreviewPdf(asset.url)) return <DownloadResource asset={asset} label="PDF" />;
     return (
@@ -179,7 +179,7 @@ function ModuleList({ modules, currentModuleId, coursePath, completedModuleIds }
   );
 }
 
-export function AdaptiveCoursePlayer({ data }: { data: EmployeeCourseModule }) {
+export function AdaptiveCoursePlayer({ data, readOnly = false }: { data: EmployeeCourseModule; readOnly?: boolean }) {
   const router = useRouter();
   const moduleNumber = data.modules.findIndex((module) => module.id === data.currentModule.id) + 1;
   const coursePath = `/cursos/${data.course.slug}/modulos`;
@@ -242,8 +242,8 @@ export function AdaptiveCoursePlayer({ data }: { data: EmployeeCourseModule }) {
           <p className="font-tabular text-sm text-muted">MÓDULO {String(moduleNumber).padStart(2, "0")}</p>
           <h2 className="mt-2 text-[31px] font-medium leading-tight">{data.currentModule.title}</h2>
           {data.currentModule.description ? <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">{data.currentModule.description}</p> : null}
-          {selectedAsset ? <div className="mt-8"><AssetStage asset={selectedAsset} key={selectedAsset.id} onAssetCompleted={refreshProgress} /></div> : <section className="mt-8 border border-dashed border-line bg-surface p-6"><BookOpen className="size-5 text-jade" aria-hidden="true" /><p className="mt-4 text-sm text-muted">Este módulo todavía no tiene contenido publicado.</p></section>}
-          <ResourceProgressRecorder asset={selectedAsset} onRecorded={refreshProgress} />
+          {selectedAsset ? <div className="mt-8"><AssetStage asset={selectedAsset} key={selectedAsset.id} onAssetCompleted={refreshProgress} readOnly={readOnly} /></div> : <section className="mt-8 border border-dashed border-line bg-surface p-6"><BookOpen className="size-5 text-jade" aria-hidden="true" /><p className="mt-4 text-sm text-muted">Este módulo todavía no tiene contenido publicado.</p></section>}
+          {!readOnly ? <ResourceProgressRecorder asset={selectedAsset} onRecorded={refreshProgress} /> : null}
           {resources.length ? <section className="mt-8 xl:hidden"><h3 className="mb-3 text-sm font-medium">Contenido de esta lección</h3><ResourceList resources={resources} selectedAssetId={selectedAsset?.id ?? null} onSelect={setSelectedAssetId} /></section> : null}
           {visibleExams.length ? <section className="mt-8 border border-line bg-sand-soft p-5"><p className="font-tabular text-xs text-jade-deep">EVALUACIÓN</p>{visibleExams.map((exam) => { const passed = data.completedExamIds.includes(exam.id); return <div className="mt-3 flex flex-wrap items-center justify-between gap-4" key={exam.id}><div><h3 className="font-medium">{exam.title}</h3><p className="mt-1 text-sm text-muted">Aprobás con {Number(exam.passing_score)}%.</p></div>{passed ? <span className="inline-flex h-10 items-center gap-2 px-3 text-sm font-medium text-jade-deep"><CheckCircle2 className="size-4" aria-hidden="true" />Aprobada</span> : <Link className="flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep" href={`/cursos/examen/${exam.id}`}>Rendir <ChevronRight className="size-4" aria-hidden="true" /></Link>}</div>; })}</section> : null}
           <nav className="mt-10 flex justify-between gap-4 border-t border-line pt-5" aria-label="Navegación entre módulos">{data.previousModule ? <Link className="flex h-11 items-center gap-2 rounded-sm border px-4 text-sm text-muted transition-colors hover:bg-surface hover:text-ink" href={`${coursePath}/${data.previousModule.id}`}><ChevronLeft className="size-4" aria-hidden="true" />Anterior</Link> : <span />}{data.nextModule ? canProceed ? <Link className="ml-auto flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep" href={`${coursePath}/${data.nextModule.id}`}>Siguiente <ChevronRight className="size-4" aria-hidden="true" /></Link> : <p className="ml-auto flex min-h-11 items-center gap-2 text-sm font-medium text-muted"><LockKeyhole className="size-4" aria-hidden="true" />Aprobá la evaluación para continuar</p> : <Link className="ml-auto flex h-11 items-center gap-2 rounded-sm bg-jade px-4 text-sm font-medium text-white transition-colors hover:bg-jade-deep" href="/cursos/progreso">Ver progreso <ChevronRight className="size-4" aria-hidden="true" /></Link>}</nav>

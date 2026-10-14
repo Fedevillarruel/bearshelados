@@ -10,6 +10,7 @@ type VideoTrackingOptions = {
   initialPosition?: number;
   initialRanges?: WatchedRange[];
   initiallyCompleted?: boolean;
+  readOnly?: boolean;
   onCompleted?: () => void;
 };
 
@@ -19,6 +20,7 @@ export function useVideoTracking({
   initialPosition = 0,
   initialRanges = [],
   initiallyCompleted = false,
+  readOnly = false,
   onCompleted,
 }: VideoTrackingOptions) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -38,6 +40,16 @@ export function useVideoTracking({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    let startRequest: Promise<boolean> | null = null;
+    let flushRequested = false;
+    const ensureStarted = () => {
+      if (readOnly) return Promise.resolve(false);
+      startRequest ??= startVideoProgress(assetId).then((started) => {
+        if (!started) startRequest = null;
+        return started;
+      });
+      return startRequest;
+    };
 
     const onLoadedMetadata = () => {
       const { initialPosition, initiallyCompleted } = resumeRef.current;
@@ -48,7 +60,7 @@ export function useVideoTracking({
       lastObservedRef.current = position;
     };
     const recordProgress = () => {
-      if (!playingRef.current || document.visibilityState !== "visible") return;
+      if (readOnly || !playingRef.current || document.visibilityState !== "visible") return;
       const currentPosition = video.currentTime;
       const previousPosition = lastObservedRef.current;
       const elapsed = currentPosition - previousPosition;
@@ -61,25 +73,33 @@ export function useVideoTracking({
     };
 
     const flush = async () => {
-      if (pendingRef.current || rangesRef.current.length === 0) return;
+      if (readOnly || rangesRef.current.length === 0) return;
+      if (pendingRef.current) {
+        flushRequested = true;
+        return;
+      }
       pendingRef.current = true;
       try {
-        const completed = await saveVideoProgress({
-          assetId,
-          lastPosition: Math.floor(video.currentTime),
-          watchedRanges: rangesRef.current,
-        });
-        if (completed && !completionReportedRef.current) {
-          completionReportedRef.current = true;
-          onCompletedRef.current?.();
-        }
+        if (!await ensureStarted()) return;
+        do {
+          flushRequested = false;
+          const completed = await saveVideoProgress({
+            assetId,
+            lastPosition: Math.floor(video.currentTime),
+            watchedRanges: rangesRef.current,
+          });
+          if (completed && !completionReportedRef.current) {
+            completionReportedRef.current = true;
+            onCompletedRef.current?.();
+          }
+        } while (flushRequested);
       } finally {
         pendingRef.current = false;
       }
     };
 
     const startTracking = () => {
-      void startVideoProgress(assetId);
+      void ensureStarted();
     };
 
     const onPlay = () => {
@@ -97,13 +117,15 @@ export function useVideoTracking({
     };
     const onEnded = () => {
       recordProgress();
-      rangesRef.current = mergeRanges([...rangesRef.current, [Math.max(0, durationSeconds - 1), durationSeconds]]);
       playingRef.current = false;
       void flush();
     };
     const onVisibility = () => {
       if (document.visibilityState !== "visible") onPause();
-      else lastObservedRef.current = video.currentTime;
+      else {
+        lastObservedRef.current = video.currentTime;
+        playingRef.current = !video.paused && !video.ended;
+      }
     };
 
     const heartbeat = window.setInterval(() => {
@@ -114,6 +136,7 @@ export function useVideoTracking({
     video.addEventListener("loadedmetadata", onLoadedMetadata);
     if (video.readyState >= 1) onLoadedMetadata();
     video.addEventListener("play", onPlay);
+    video.addEventListener("timeupdate", recordProgress);
     video.addEventListener("pause", onPause);
     video.addEventListener("seeking", onSeeking);
     video.addEventListener("ended", onEnded);
@@ -125,12 +148,13 @@ export function useVideoTracking({
       void flush();
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
       video.removeEventListener("play", onPlay);
+      video.removeEventListener("timeupdate", recordProgress);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("seeking", onSeeking);
       video.removeEventListener("ended", onEnded);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [assetId, durationSeconds]);
+  }, [assetId, durationSeconds, readOnly]);
 
   return {
     videoRef,
