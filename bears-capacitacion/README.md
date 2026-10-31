@@ -118,7 +118,12 @@ El simulador no envía mensajes ni suma métricas de clientes.
 
 1. Aplicá la migración `022_ai_assistant.sql` después del esquema base. El
    instalador completo no incluye esa migración: debe ejecutarse también en
-   proyectos nuevos.
+   proyectos nuevos. La migración puede volver a ejecutarse sobre su propio
+   esquema: conserva tablas y datos, recrea la política de lectura administrativa
+   y actualiza las funciones. Si recibís `relation "ai_settings" already exists`,
+   usá la versión actual del archivo completo, desde `begin;` hasta `commit;`;
+   no borres tablas. Esto no convierte automáticamente un esquema distinto o
+   incompatible de tablas con los mismos nombres.
 2. Configurá en Vercel/servidor `OPENAI_API_KEY`, `OPENAI_MODEL` (por defecto
    `gpt-4.1-mini`, debe admitir salida JSON estructurada), `SUPABASE_SERVICE_ROLE_KEY`,
    `SITE_URL`, `META_APP_ID`, `META_APP_SECRET`, `META_GRAPH_VERSION` (versión vigente

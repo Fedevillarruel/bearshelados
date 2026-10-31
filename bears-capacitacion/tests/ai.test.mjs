@@ -155,6 +155,16 @@ test("migration keeps secrets server-only, ingress atomic and jobs uniquely asso
   assert.match(sql, /ai_meta_secrets','ai_oauth_states','ai_oauth_pending','ai_usage/);
 });
 
+test("AI migration can be reapplied without recreating tables or losing data", () => {
+  const sql = fs.readFileSync(path.join(root, "supabase/migrations/022_ai_assistant.sql"), "utf8");
+  assert.equal((sql.match(/create table if not exists public\.ai_/g) ?? []).length, 11);
+  assert.equal((sql.match(/create index if not exists /g) ?? []).length, 3);
+  assert.equal((sql.match(/create or replace function public\.ai_/g) ?? []).length, 6);
+  assert.match(sql, /add column if not exists job_id/);
+  assert.match(sql, /drop policy if exists "admin reads AI"/);
+  assert.doesNotMatch(sql, /drop table|truncate /i);
+});
+
 function workerHarness({ enabled = true, status = "bot", age = 0, prior = null, attachment = false, modelError = false, sendError = false } = {}) {
   const changes = [];
   let claims = 0;
