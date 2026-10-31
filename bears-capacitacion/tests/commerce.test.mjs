@@ -58,26 +58,22 @@ test("all commerce sections have unique valid routes and unknown sections are re
   assert.equal(sections.getCommerceSection("__proto__"), undefined);
 });
 
-test("commerce accordion is admin-only on desktop and mobile", () => {
+test("commerce is hidden and AI is admin-only on desktop and mobile", () => {
   for (const component of [navigation.PortalNavigation, navigation.PortalMobileNavigation]) {
     for (const role of ["admin", "franquiciado", "empleado"]) {
       const html = renderToStaticMarkup(React.createElement(component, { role, activeKey: "dashboard" }));
-      if (role === "admin") {
-        assert.match(html, /Compras y Ventas/);
-        for (const section of sections.commerceSections) assert.ok(html.includes(sections.commerceHref(section.id)));
-      } else {
-        assert.doesNotMatch(html, /Compras y Ventas|\/admin\/compras-ventas/);
-      }
+      assert.doesNotMatch(html, /Compras y Ventas|\/admin\/compras-ventas/);
+      if (role === "admin") assert.match(html, /href="\/admin\/ia"/);
+      else assert.doesNotMatch(html, /href="\/admin\/ia"/);
     }
   }
 });
 
-test("active commerce section opens the accordion and marks exactly one active link", () => {
+test("active AI section marks exactly one active link", () => {
   for (const component of [navigation.PortalNavigation, navigation.PortalMobileNavigation]) {
-    const html = renderToStaticMarkup(React.createElement(component, { role: "admin", activeKey: "commerce-stock" }));
-    assert.match(html, /<details[^>]*open=""/);
+    const html = renderToStaticMarkup(React.createElement(component, { role: "admin", activeKey: "ai" }));
     assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1);
-    assert.match(html, /href="\/admin\/compras-ventas\/stock"[^>]*aria-current="page"/);
+    assert.match(html, /href="\/admin\/ia"[^>]*aria-current="page"/);
   }
 });
 

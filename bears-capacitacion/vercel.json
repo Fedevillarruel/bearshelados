@@ -3,6 +3,10 @@
   "framework": "nextjs",
   "crons": [
     {
+      "path": "/api/cron/ai",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/tiendanube",
       "schedule": "*/15 * * * *"
     }

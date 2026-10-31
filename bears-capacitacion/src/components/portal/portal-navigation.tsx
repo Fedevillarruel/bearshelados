@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import {
-  BarChart3, BookOpen, Building2, ChevronDown, FileText,
-  LayoutDashboard, Menu, ShoppingCart, Users, type LucideIcon,
+  BarChart3, BookOpen, Building2, FileText,
+  LayoutDashboard, Menu, Sparkles, Users, type LucideIcon,
 } from "lucide-react";
 import type { AppRole } from "@/lib/auth/roles";
-import { commerceActiveKey, commerceHref, commerceSections } from "@/lib/commerce/sections";
 
 type NavigationItem = { href: string; label: string; icon: LucideIcon; key: string };
 
@@ -17,6 +16,7 @@ const navigationByRole: Record<AppRole, NavigationItem[]> = {
     { href: "/admin/cursos", label: "Cursos", icon: BookOpen, key: "courses" },
     { href: "/admin/manuales", label: "Manuales", icon: FileText, key: "manuals" },
     { href: "/admin/franquicias", label: "Franquicias", icon: Building2, key: "franchises" },
+    { href: "/admin/ia", label: "Bot IA", icon: Sparkles, key: "ai" },
   ],
   franquiciado: [
     { href: "/franquicia/dashboard", label: "Resumen", icon: LayoutDashboard, key: "dashboard" },
@@ -34,7 +34,6 @@ const navigationByRole: Record<AppRole, NavigationItem[]> = {
 function NavigationLinks({ role, activeKey, mobile = false }: { role: AppRole; activeKey: string; mobile?: boolean }) {
   const activeClass = mobile ? "bg-surface text-jade-deep dark:text-jade" : "bg-paper text-ink";
   const idleClass = mobile ? "text-ink hover:bg-surface" : "text-white/85 hover:bg-white/15 hover:text-paper";
-  const commerceActive = commerceSections.some((section) => commerceActiveKey(section.id) === activeKey);
 
   return <>
     {navigationByRole[role].map((item) => {
@@ -44,19 +43,6 @@ function NavigationLinks({ role, activeKey, mobile = false }: { role: AppRole; a
         <Icon className="size-4 shrink-0" aria-hidden="true" />{item.label}
       </Link>;
     })}
-    {role === "admin" ? <details className="group/commerce mt-2 border-t border-current/20 pt-2" open={commerceActive} key={activeKey}>
-      <summary className={`flex min-h-11 cursor-pointer list-none items-center gap-3 rounded-sm px-3 text-sm [&::-webkit-details-marker]:hidden ${commerceActive ? activeClass : idleClass}`}>
-        <ShoppingCart className="size-4 shrink-0" aria-hidden="true" />
-        <span className="flex-1">Compras y Ventas</span>
-        <ChevronDown className="size-4 shrink-0 transition-transform group-open/commerce:rotate-180" aria-hidden="true" />
-      </summary>
-      <div className="ml-5 mt-1 space-y-1 border-l border-current/20 pl-3">
-        {commerceSections.map((section) => {
-          const active = commerceActiveKey(section.id) === activeKey;
-          return <Link href={commerceHref(section.id)} key={section.id} aria-current={active ? "page" : undefined} className={`flex min-h-10 items-center rounded-sm px-3 text-sm ${active ? activeClass : idleClass}`}>{section.label}</Link>;
-        })}
-      </div>
-    </details> : null}
   </>;
 }
 

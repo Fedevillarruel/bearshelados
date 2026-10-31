@@ -19,6 +19,8 @@ Plataforma interna de cursos, manuales y seguimiento operativo para administraci
 
 Ejecutá una sola vez `supabase/setup-completo.sql` en el SQL Editor. El archivo instala el esquema, RLS, buckets privados, automatizaciones y la base de Tiendanube en una transacción; no crea usuarios, franquicias, cursos ni métricas de ejemplo.
 
+Para habilitar el centro de IA, ejecutá después `supabase/migrations/022_ai_assistant.sql`.
+
 Después, creá la primera cuenta en **Authentication > Users > Add user** con confirmación automática y promovela desde el SQL Editor:
 
 ```sql
@@ -46,6 +48,8 @@ supabase/migrations/017_storage_unlimited_uploads.sql
 supabase/migrations/018_course_covers_and_duration.sql
 supabase/migrations/019_large_course_media_uploads.sql
 supabase/migrations/020_video_posters.sql
+supabase/migrations/021_completion_authority.sql
+supabase/migrations/022_ai_assistant.sql
 ```
 
 La migración `015_auth_user_deletion_recovery.sql` habilita exclusivamente para `service_role` la recuperación de identidades que Supabase Auth no puede cargar al eliminarlas.
@@ -68,8 +72,8 @@ No ejecutes nuevamente `setup-completo.sql` sobre una instalación existente.
 
 ## Compras y Ventas (administración)
 
-El sidebar incluye un acordeón **Compras y Ventas** exclusivamente para el rol
-`admin`, accesible también desde **Menú** en dispositivos móviles. Las rutas
+**Compras y Ventas está oculto temporalmente** en la navegación de escritorio
+y móvil. Sus rutas existentes se conservan sin cambios. Las rutas
 `/admin/compras-ventas` y `/admin/compras-ventas/[section]` comprueban el rol en
 el servidor, además de la protección existente del middleware.
 
@@ -94,6 +98,117 @@ inicial previsto es de solo lectura; cualquier emisión de órdenes requiere
 definir y validar las aprobaciones.
 
 Validación específica: `node --test tests/commerce.test.mjs`.
+
+## Bot IA de Bears (solo administración)
+
+La pestaña **Bot IA** (`/admin/ia`) es exclusiva de administradores, tanto en
+la navegación como en el servidor y las APIs. No está disponible en la vista
+de empleados/franquicias. Un único vínculo de Facebook Page + Instagram
+Business representa a Bears; el conocimiento puede ser global o específico
+de cada local real de la plataforma.
+
+Incluye personalidad, nombre, tono, nivel de emojis, instrucciones, enlace de
+venta, mensaje de derivación, base editable por categorías, fechas de vigencia,
+simulador con OpenAI, bandeja con toma de control humana, publicaciones de IG/Facebook,
+eventos sociales recibidos y métricas de 7/30/90 días. Las nuevas fichas se
+consultan en la siguiente respuesta: no requieren entrenamiento ni fine-tuning.
+El simulador no envía mensajes ni suma métricas de clientes.
+
+### Qué preparar y cómo vincular
+
+1. Aplicá la migración `022_ai_assistant.sql` después del esquema base. El
+   instalador completo no incluye esa migración: debe ejecutarse también en
+   proyectos nuevos.
+2. Configurá en Vercel/servidor `OPENAI_API_KEY`, `OPENAI_MODEL` (por defecto
+   `gpt-4.1-mini`, debe admitir salida JSON estructurada), `SUPABASE_SERVICE_ROLE_KEY`,
+   `SITE_URL`, `META_APP_ID`, `META_APP_SECRET`, `META_GRAPH_VERSION` (versión vigente
+   admitida por tu app de Meta), `META_WEBHOOK_VERIFY_TOKEN` y
+   `META_TOKEN_ENCRYPTION_KEY` (32 bytes aleatorios en base64). Nunca pegues
+   claves en el chat, navegador ni repositorio. Para generar la clave de cifrado:
+   `openssl rand -base64 32`. Mantené la clave estable: cambiarla exige reconectar.
+3. Creá una app de Meta con Facebook Login y Messenger/Instagram Messaging.
+   Registrá como URI OAuth exacta `https://TU-DOMINIO/api/meta/callback`.
+   Completá política de privacidad, eliminación de datos, dominios y
+   verificación del negocio según los requisitos que muestre Meta. Activá la
+   app en Live y obtené el acceso/revisión necesarios para clientes reales.
+4. La página de Facebook debe estar vinculada al Instagram profesional de Bears.
+   La persona que conecta debe tener acceso de administración/moderación.
+   En Instagram habilitá **Permitir acceso a los mensajes** para herramientas
+   conectadas. La app solicita `pages_show_list`, `pages_read_engagement`,
+   `pages_manage_metadata`, `pages_messaging`, `instagram_basic`,
+   `instagram_manage_messages` e `instagram_manage_comments`.
+5. En Meta Webhooks configurá `https://TU-DOMINIO/api/meta/webhooks` y el mismo
+   verify token del servidor. Suscribí el objeto **Page** a `messages`,
+   `messaging_postbacks`, `message_echoes`; el objeto **Instagram** a `messages`
+   y los campos disponibles de `mentions`, `comments` y `story_insights`.
+   La autorización suscribe la página; los campos Instagram deben habilitarse
+   en el dashboard de la app. Los campos y permisos exactos dependen del
+   producto/versionado de Meta: verificá su disponibilidad antes de publicar.
+6. En **Bot IA > Conexiones**, autorizá Meta y seleccioná **únicamente la página
+   de Bears**. El servidor valida la página y el IG vinculado; los tokens se
+   guardan cifrados con AES-256-GCM en tablas sin acceso de navegador.
+7. Cargá información real: locales/direcciones, horarios, feriados, FAQs,
+   precios y productos vigentes, cumpleaños, condiciones, talleres/eventos
+   con fechas, links oficiales de compra/reserva/WhatsApp, contacto humano y
+   voz de marca. Para cada dato particular elegí el local correspondiente.
+   No se asumen horarios ni precios a partir de los cursos internos.
+8. Probá en el simulador, verificá un DM de Instagram y uno de Messenger con
+   cuentas habilitadas por Meta y recién después activá las respuestas.
+
+### Operación y límites explícitos
+
+- El webhook valida HMAC sobre el cuerpo original, filtra por la única cuenta
+  conectada y registra los mensajes/cola de forma atómica e idempotente.
+  Un worker intenta procesar después de confirmar el webhook; el cron
+  `/api/cron/ai` recupera la cola cada minuto con `CRON_SECRET`. El cron
+  configurado requiere un plan de Vercel que permita esa frecuencia (por ejemplo
+  Pro); alternativamente usá un scheduler HTTPS externo con el mismo bearer.
+  Un cron procesa hasta 10 trabajos, con presupuesto de tiempo. Monitoreá el
+  crecimiento de la cola antes de aumentar tráfico.
+- Solo se responde dentro de las 24 horas desde el mensaje del cliente. No
+  inicia campañas ni usa excepciones de 7 días/tags. Ante errores o adjuntos
+  se deriva al humano; audio/imágenes no se analizan. La bandeja permite
+  responder manualmente dentro de la misma ventana y volver a modo bot.
+  El cambio a bot aplica a mensajes futuros, no dispara respuestas antiguas.
+- No se reintentan automáticamente envíos ambiguos: un timeout puede significar
+  que Meta recibió el mensaje. Revisá la bandeja de Meta antes de reenviar.
+  Los fallos se guardan y muestran, nunca se cuentan como respuestas enviadas.
+- Las publicaciones se sincronizan manualmente (hasta 50 recientes por canal); las
+  menciones de historias se registran cuando Meta las entrega como adjunto
+  `story_mention`. Los otros eventos dependen de los permisos/campos suscritos.
+  No hay importación de chats históricos ni acceso a historias privadas,
+  notificaciones anteriores o contenido que la API no exponga. Las URLs de
+  historias pueden vencer.
+- El modelo consulta hasta 20 publicaciones sincronizadas de los últimos 90 días
+  como contexto público con fecha y enlace. No constituyen instrucciones ni
+  prueba de promociones vigentes: el admin debe confirmar las condiciones
+  actuales en Conocimiento. Menciones/comentarios de terceros no se incorporan
+  como información comercial del negocio.
+- Se admiten hasta 100 fichas de 4.000 caracteres y 100.000 caracteres totales.
+  El simulador admite 30 pruebas por administrador/hora. Los límites son
+  explícitos para controlar costo y contexto, no una promesa de configuración
+  ilimitada. Configurá presupuesto/límites del proyecto OpenAI.
+- Métricas reales desde la conexión: consultas entrantes, respuestas automáticas
+  confirmadas, chats actualmente derivados, fallos, temas clasificados y serie
+  diaria UTC. No representan ventas, ingresos ni conversiones verificadas.
+  Bandeja/actividad muestran hasta 100 registros recientes del período;
+  los KPI agregan todos los registros del período en SQL.
+- El bot se presenta como asistente virtual, no puede confirmar reservas/pagos
+  ni inventar enlaces fuera de los aprobados. La IA puede equivocarse:
+  supervisá respuestas y mantené la base actualizada.
+- Chats, IDs de participantes y actividad social se almacenan en Supabase;
+  mensajes recientes y conocimiento se envían a OpenAI para responder.
+  Definí aviso de privacidad, consentimiento/base legal, retención y un proceso
+  de eliminación antes de producción. Desconectar no borra el historial ni
+  revoca los permisos de la app en Meta; se desuscribe la página, se apaga el
+  bot y se eliminan los tokens locales. Podés revocar la app en Meta.
+
+Documentación oficial:
+[Instagram Messaging](https://developers.facebook.com/documentation/business-messaging/instagram-messaging/get-started),
+[políticas de envío](https://developers.facebook.com/documentation/business-messaging/messenger-platform/send-messages),
+[webhooks](https://developers.facebook.com/documentation/instagram-platform/webhooks/setup).
+
+Validación específica: `node --test tests/ai.test.mjs tests/commerce.test.mjs`.
 
 ## Variables de entorno
 
