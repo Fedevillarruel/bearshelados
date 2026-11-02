@@ -29,6 +29,7 @@ const { AIError } = load("src/lib/ai/http.ts", {
   "@/lib/site-url": {},
 });
 const types = load("src/lib/ai/types.ts");
+const sections = load("src/lib/ai/sections.ts");
 const validation = load("src/lib/ai/validation.ts");
 const data = load("src/lib/ai/data.ts", {
   "@/lib/supabase/admin": {},
@@ -281,9 +282,7 @@ test("admin workspace renders every tab with real data and explicit empty states
     assets: [], period: 30,
     metrics: { conversations: 23, incoming: 41, replies: 12, handoffs: 7, failed: 2, daily: [], topics: [] },
   };
-  const source = fs.readFileSync(path.join(root, "src/components/admin/ai-workspace.tsx"), "utf8");
-  const tabDefinition = source.match(/const tabs:[\s\S]*?=\s*\[([\s\S]*?)\];/)?.[1] ?? "";
-  const tabIds = Array.from(tabDefinition.matchAll(/id:\s*"([^"]+)"/g), (match) => match[1]);
+  const tabIds = sections.aiSections.map((section) => section.id);
   assert.equal(tabIds.length, 7);
   for (const tab of tabIds) {
     let stateIndex = 0;
@@ -291,7 +290,7 @@ test("admin workspace renders every tab with real data and explicit empty states
       ...React,
       useState: (initial) => {
         const index = stateIndex++;
-        return [index === 0 ? workspace : index === 2 ? false : index === 3 ? tab : initial, () => {}];
+        return [index === 0 ? workspace : index === 2 ? false : initial, () => {}];
       },
       useEffect() {},
       useMemo: (callback) => callback(),
@@ -314,13 +313,47 @@ test("admin workspace renders every tab with real data and explicit empty states
       "next/navigation": {},
       sonner: { Toaster: () => null, toast: { success() {}, error() {} } },
       "@/lib/ai/types": types,
+      "@/lib/ai/sections": sections,
     });
-    const html = renderToStaticMarkup(React.createElement(AIWorkspace));
+    const html = renderToStaticMarkup(React.createElement(AIWorkspace, { tab }));
     assert.match(html, /Bears/);
+    assert.doesNotMatch(html, /role="tablist"|role="tab"|role="tabpanel"/);
+    assert.ok(html.includes(`aria-label="${sections.aiSections.find((section) => section.id === tab).label}"`));
     assert.doesNotMatch(html, /test-server-key|test-access-token/);
     if (tab === "resumen") {
       assert.match(html, /Chats en atención humana/);
       assert.ok(html.includes(">7<"), "Human-attention KPI uses full-period aggregate, not last 100 conversations.");
+      assert.doesNotMatch(html, /estado actual de las últimas 100 conversaciones/);
     }
   }
+});
+
+test("AI section links reject unknown values and keep a canonical overview URL", () => {
+  assert.equal(sections.aiSectionHref("resumen"), "/admin/ia");
+  assert.equal(sections.getAISection("invalid"), undefined);
+  assert.equal(sections.getAISection("__proto__"), undefined);
+  assert.equal(sections.getAISection("conexiones"), "conexiones");
+});
+
+test("AI page selects sidebar sections and preserves the Meta connection return flow", async () => {
+  let authorized = 0;
+  const { default: page } = load("src/app/admin/ia/page.tsx", {
+    "@/lib/auth/roles": { requirePortalRole: async () => { authorized++; return { role: "admin" }; } },
+    "@/components/portal/portal-layout": { PortalLayout: () => null },
+    "@/components/admin/ai-workspace": { AIWorkspace: () => null },
+    "@/lib/ai/sections": sections,
+    "next/navigation": { notFound: () => { throw new Error("NOT_FOUND"); } },
+  });
+  for (const section of sections.aiSections) {
+    const output = await page({ searchParams: Promise.resolve({ section: section.id }) });
+    assert.equal(output.props.activeKey, sections.aiSectionKey(section.id));
+    assert.equal(output.props.children.props.tab, section.id);
+  }
+  const overview = await page({ searchParams: Promise.resolve({}) });
+  assert.equal(overview.props.children.props.tab, "resumen");
+  const callback = await page({ searchParams: Promise.resolve({ meta: "select" }) });
+  assert.equal(callback.props.activeKey, "ai-conexiones");
+  assert.equal(callback.props.children.props.tab, "conexiones");
+  await assert.rejects(page({ searchParams: Promise.resolve({ section: "invalid" }) }), /NOT_FOUND/);
+  assert.equal(authorized, 10);
 });

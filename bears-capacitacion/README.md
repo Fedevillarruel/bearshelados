@@ -107,6 +107,11 @@ de empleados/franquicias. Un único vínculo de Facebook Page + Instagram
 Business representa a Bears; el conocimiento puede ser global o específico
 de cada local real de la plataforma.
 
+Sus siete subsecciones se navegan desde el acordeón **Bot IA** del sidebar
+(también en **Menú** en móviles), sin botonera horizontal en el contenido.
+La subsección queda en la URL (`/admin/ia?section=conocimiento`, por ejemplo),
+se conserva al recargar y se marca como activa en la navegación.
+
 Incluye personalidad, nombre, tono, nivel de emojis, instrucciones, enlace de
 venta, mensaje de derivación, base editable por categorías, fechas de vigencia,
 simulador con OpenAI, bandeja con toma de control humana, publicaciones de IG/Facebook,

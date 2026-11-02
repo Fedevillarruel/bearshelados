@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import {
   Activity, ArrowDownLeft, ArrowUpRight, Bot, Check, CircleAlert, Clock3,
   Camera, ExternalLink, FileText, LoaderCircle, MessageCircle, MessageSquareText,
-  Plus, RefreshCw, Send, Settings2, ShieldCheck, Sparkles, Trash2, UserRound,
-  WandSparkles, X,
+  Plus, RefreshCw, Send, ShieldCheck, Sparkles, Trash2, UserRound, X,
 } from "lucide-react";
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -15,8 +14,8 @@ import {
   defaultBotSettings, type AIWorkspaceData, type BotMessage, type BotSettings,
   type Conversation, type KnowledgeCategory, type KnowledgeEntry, type SocialAsset,
 } from "@/lib/ai/types";
+import { aiSections, type AISection } from "@/lib/ai/sections";
 
-type Tab = "resumen" | "configuracion" | "conocimiento" | "bandeja" | "conexiones" | "social" | "prueba";
 type KnowledgeDraft = Omit<KnowledgeEntry, "id"> & { id?: string };
 type PlaygroundMessage = { role: "user" | "assistant"; content: string; handoff?: boolean };
 type MetaPage = { id: string; name: string; instagramId: string | null };
@@ -29,16 +28,6 @@ const categories: { value: KnowledgeCategory; label: string }[] = [
   { value: "talleres", label: "Talleres" },
   { value: "cumpleanos", label: "Cumpleaños" },
   { value: "productos", label: "Productos" },
-];
-
-const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
-  { id: "resumen", label: "Resumen", icon: Activity },
-  { id: "configuracion", label: "Personalidad", icon: Settings2 },
-  { id: "conocimiento", label: "Conocimiento", icon: FileText },
-  { id: "bandeja", label: "Bandeja", icon: MessageSquareText },
-  { id: "conexiones", label: "Conexiones", icon: Camera },
-  { id: "social", label: "Actividad social", icon: Activity },
-  { id: "prueba", label: "Zona de prueba", icon: WandSparkles },
 ];
 
 const inputClass = "h-11 w-full rounded-sm border border-line bg-paper px-3 text-sm text-ink placeholder:text-muted";
@@ -112,11 +101,10 @@ const initialKnowledge: KnowledgeDraft = {
   enabled: true, validFrom: null, validUntil: null,
 };
 
-export function AIWorkspace() {
+export function AIWorkspace({ tab = "resumen" }: { tab?: AISection }) {
   const [data, setData] = useState<AIWorkspaceData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>("resumen");
   const [period, setPeriod] = useState<7 | 30 | 90>(30);
   const [pending, setPending] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
@@ -157,20 +145,17 @@ export function AIWorkspace() {
     const metaResult = params.get("meta");
     if (metaResult === "connected") {
       setMetaNotice("Autorización recibida. Elegí la página oficial de Bears para finalizar la conexión.");
-      setTab("conexiones");
       void requestJson<{ pages: MetaPage[] }>("/api/meta/pages").then(({ pages }) => {
         setMetaPages(pages);
         if (pages.length === 1) setSelectedPageId(pages[0].id);
       }).catch((error: unknown) => setNotice({ tone: "error", text: error instanceof Error ? error.message : "No se pudieron cargar las páginas autorizadas." }));
     } else if (metaResult === "select") {
-      setTab("conexiones");
       void requestJson<{ pages: MetaPage[] }>("/api/meta/pages").then(({ pages }) => {
         setMetaPages(pages);
         if (pages.length === 1) setSelectedPageId(pages[0].id);
       }).catch((error: unknown) => setNotice({ tone: "error", text: error instanceof Error ? error.message : "No se pudieron cargar las páginas autorizadas." }));
     } else if (metaResult === "error") {
       setMetaNotice("Meta no pudo completar la autorización. Revisá la configuración e intentá nuevamente.");
-      setTab("conexiones");
     }
   }, []);
 
@@ -425,16 +410,7 @@ export function AIWorkspace() {
       <button type="button" aria-label="Cerrar aviso" onClick={() => setNotice(null)}><X className="size-4" aria-hidden="true" /></button>
     </div> : null}
 
-    <div className="border-b border-line">
-      <div role="tablist" aria-label="Secciones del espacio de IA" className="-mb-px flex gap-1 overflow-x-auto">
-        {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" id={`ai-tab-${id}`} aria-selected={tab === id} aria-controls={`ai-panel-${id}`} onClick={() => setTab(id)} className={`flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-sm transition-colors ${tab === id ? "border-jade-deep font-medium text-jade-deep" : "border-transparent text-muted hover:text-ink"}`}>
-          <Icon className="size-4" aria-hidden="true" />{label}
-          {id === "bandeja" && data?.conversations.length ? <span className="rounded-full bg-surface px-1.5 py-0.5 text-xs">{data.conversations.length}</span> : null}
-        </button>)}
-      </div>
-    </div>
-
-    {loading && !data ? <div className="grid min-h-72 place-items-center border border-line bg-paper"><p className="flex items-center gap-3 text-sm text-muted"><LoaderCircle className="size-5 animate-spin" aria-hidden="true" />Cargando el espacio de IA…</p></div> : loadError && !data ? <EmptyState icon={CircleAlert} title="No se pudo cargar el espacio" description={loadError} action={<button type="button" className={primaryButtonClass} onClick={() => void refresh(period)}><RefreshCw className="size-4" aria-hidden="true" />Reintentar</button>} /> : data ? <section role="tabpanel" id={`ai-panel-${tab}`} aria-labelledby={`ai-tab-${tab}`} className="min-w-0">
+    {loading && !data ? <div className="grid min-h-72 place-items-center border border-line bg-paper"><p className="flex items-center gap-3 text-sm text-muted"><LoaderCircle className="size-5 animate-spin" aria-hidden="true" />Cargando el espacio de IA…</p></div> : loadError && !data ? <EmptyState icon={CircleAlert} title="No se pudo cargar el espacio" description={loadError} action={<button type="button" className={primaryButtonClass} onClick={() => void refresh(period)}><RefreshCw className="size-4" aria-hidden="true" />Reintentar</button>} /> : data ? <section aria-label={aiSections.find((section) => section.id === tab)?.label} className="min-w-0">
       {tab === "resumen" ? <div className="space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div><h2 className="text-xl font-medium">Rendimiento del asistente</h2><p className="mt-1 text-sm text-muted">Actividad registrada en los canales conectados.</p></div>
@@ -447,7 +423,7 @@ export function AIWorkspace() {
           <MetricCard label="Chats en atención humana" value={data.metrics.handoffs} detail="Estado actual de chats con actividad en el período" icon={UserRound} />
         </div>
         <p className="border-l-2 border-sand bg-sand-soft px-4 py-3 text-sm leading-6 text-ink">Estas métricas reflejan conversaciones y mensajes, no ventas ni ingresos verificados.</p>
-        <p className="text-xs leading-5 text-muted">Las métricas de conversaciones y mensajes cubren todo el período seleccionado; hay {data.metrics.failed} mensajes con error de entrega. La atención humana muestra el estado actual de las últimas 100 conversaciones cargadas.</p>
+        <p className="text-xs leading-5 text-muted">Las métricas de conversaciones y mensajes cubren todo el período seleccionado; hay {data.metrics.failed} mensajes con error de entrega. La atención humana incluye todos los chats con actividad en ese período, no solo los últimos 100 de la bandeja.</p>
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,0.8fr)]">
           <section className="border border-line bg-paper p-4 sm:p-5">
             <div className="flex items-start justify-between gap-3"><div><h3 className="text-sm font-medium">Conversaciones por día</h3><p className="mt-1 text-xs text-muted">Mensajes recibidos y respuestas</p></div><StatusPill>{period} días</StatusPill></div>
@@ -579,7 +555,7 @@ export function AIWorkspace() {
     </section> : null}
 
     {data && tab === "resumen" && data.assets.length ? <section className="border border-line bg-paper p-4 sm:p-5">
-      <SectionHeading title="Actividad social reciente" description="Publicaciones sincronizadas de los canales conectados." action={data.connection ? <button className={buttonClass} type="button" onClick={() => setTab("conexiones")}><Camera className="size-4" aria-hidden="true" />Administrar conexión</button> : undefined} />
+      <SectionHeading title="Actividad social reciente" description="Publicaciones sincronizadas de los canales conectados." />
       <div className="mt-4 divide-y divide-line">{data.assets.slice(0, 4).map((asset) => <SocialAssetRow key={asset.id} asset={asset} />)}</div>
     </section> : null}
   </div>;

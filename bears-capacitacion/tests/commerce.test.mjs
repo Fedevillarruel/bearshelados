@@ -33,11 +33,13 @@ function loadModule(relativePath, mocks = {}, globals = {}) {
 }
 
 const sections = loadModule("src/lib/commerce/sections.ts");
+const aiSections = loadModule("src/lib/ai/sections.ts");
 const Link = ({ children, ...props }) => React.createElement("a", props, children);
 const clientMocks = {
   "next/link": Link,
   "next/navigation": { useRouter: () => ({ refresh() {} }) },
   "@/lib/commerce/sections": sections,
+  "@/lib/ai/sections": aiSections,
 };
 const franchises = [
   { id: "local-1", name: "Local Centro", code: "CENTRO", city: "Buenos Aires", isActive: true },
@@ -69,11 +71,15 @@ test("commerce is hidden and AI is admin-only on desktop and mobile", () => {
   }
 });
 
-test("active AI section marks exactly one active link", () => {
+test("AI accordion opens and marks exactly one active subsection on desktop and mobile", () => {
   for (const component of [navigation.PortalNavigation, navigation.PortalMobileNavigation]) {
-    const html = renderToStaticMarkup(React.createElement(component, { role: "admin", activeKey: "ai" }));
-    assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1);
-    assert.match(html, /href="\/admin\/ia"[^>]*aria-current="page"/);
+    for (const section of aiSections.aiSections) {
+      const html = renderToStaticMarkup(React.createElement(component, { role: "admin", activeKey: aiSections.aiSectionKey(section.id) }));
+      assert.match(html, /<details[^>]*group\/ai[^>]*open=""/);
+      assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1);
+      assert.ok(html.includes(`href="${aiSections.aiSectionHref(section.id)}" aria-current="page"`));
+      for (const link of aiSections.aiSections) assert.ok(html.includes(aiSections.aiSectionHref(link.id)));
+    }
   }
 });
 
